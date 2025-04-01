@@ -78,13 +78,6 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 	// TODO: GENERATE RENDERABLES
 	// ==========================
 
-	// Store Prefab Entitys
-		// ...
-		//		Store Children Prefab Entities
-
-		// Store Lights
-		// ...
-
 	std::vector<PrefabEntity*> renderable_ent;
 	std::vector<LightEntity*> lights;
 
@@ -132,6 +125,18 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	// HERE =====================
 	// TODO: RENDER RENDERABLES
 	// ==========================
+
+	std::vector<sDrawCommand> opaque_comm;
+	std::vector<sDrawCommand> transparent_comm;
+
+	for (const sDrawCommand& command : draw_command_list) {
+		if (command.material) {
+			transparent_comm.push_back(command);
+		}
+		else {
+			opaque_comm.push_back(command);
+		}
+	}
 
 	for (sDrawCommand command : draw_command_list) {
 		Renderer::renderMeshWithMaterial(command.model, command.mesh, command.material);
