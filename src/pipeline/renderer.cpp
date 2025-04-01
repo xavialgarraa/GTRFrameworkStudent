@@ -78,6 +78,16 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 	// TODO: GENERATE RENDERABLES
 	// ==========================
 
+	// Store Prefab Entitys
+		// ...
+		//		Store Children Prefab Entities
+
+		// Store Lights
+		// ...
+
+	std::vector<PrefabEntity*> renderable_ent;
+	std::vector<LightEntity*> lights;
+
 	for (int i = 0; i < scene->entities.size(); i++) {
 		BaseEntity* entity = scene->entities[i];
 
@@ -90,15 +100,15 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 			Prefab* prefab = prefab_entt->prefab;
 
 			parseNodes(&prefab->root, cam);
+
+			renderable_ent.push_back(prefab_entt);
 		}
-		// Store Prefab Entitys
-		// ...
-		//		Store Children Prefab Entities
 
-		// Store Lights
-		// ...
+		if (entity->getType() == eEntityType::LIGHT) {
+			LightEntity* light_entt = (LightEntity*)entity;
+			lights.push_back(light_entt);
+		}
 	}
-
 }
 
 void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
