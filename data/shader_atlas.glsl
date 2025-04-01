@@ -101,6 +101,11 @@ uniform sampler2D u_texture;
 uniform float u_time;
 uniform float u_alpha_cutoff;
 
+uniform vec3 u_light_pos[10];
+uniform vec3 u_light_color[10];
+uniform float u_light_intensity[10];
+
+
 out vec4 FragColor;
 
 void main()
@@ -224,3 +229,4 @@ void main()
 	//calcule the position of the vertex using the matrices
 	gl_Position = u_viewprojection * vec4( v_world_position, 1.0 );
 }
+
