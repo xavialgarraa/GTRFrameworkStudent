@@ -4,6 +4,8 @@ texture basic.vs texture.fs
 skybox basic.vs skybox.fs
 depth quad.vs depth.fs
 multi basic.vs multi.fs
+phong phong.vs phong.fs
+
 compute test.cs
 
 \test.cs
@@ -230,3 +232,119 @@ void main()
 	gl_Position = u_viewprojection * vec4( v_world_position, 1.0 );
 }
 
+
+\phong.vs
+#version 330 core
+
+in vec3 a_vertex;
+in vec3 a_normal;
+in vec2 a_coord;
+in vec4 a_color;
+
+uniform vec3 u_camera_position;
+uniform mat4 u_model;
+uniform mat4 u_viewprojection;
+
+out vec3 v_position;
+out vec3 v_world_position;
+out vec3 v_normal;
+out vec2 v_uv;
+out vec4 v_color;
+out vec3 v_camera_position;
+
+void main()
+{
+    // Calculate the normal in world space
+    v_normal = normalize((u_model * vec4(a_normal, 0.0)).xyz);
+    
+    // Calculate the vertex in object space
+    v_position = a_vertex;
+    v_world_position = (u_model * vec4(v_position, 1.0)).xyz;
+    
+    // Store the color and texture coordinates
+    v_color = a_color;
+    v_uv = a_coord;
+    
+    // Pass camera position to fragment shader
+    v_camera_position = u_camera_position;
+
+    // Calculate the position of the vertex
+    gl_Position = u_viewprojection * vec4(v_world_position, 1.0);
+}
+
+\phong.fs
+#version 330 core
+
+in vec3 v_position;
+in vec3 v_world_position;
+in vec3 v_normal;
+in vec2 v_uv;
+in vec4 v_color;
+in vec3 v_camera_position;
+
+uniform vec4 u_color;
+uniform sampler2D u_texture;
+uniform float u_time;
+uniform float u_alpha_cutoff;
+uniform float u_shininess;
+
+// Lighting uniforms
+uniform vec3 u_ambient_light;           // Ambient light for the scene
+uniform vec3 u_light_pos[10];           // Light positions
+uniform vec3 u_light_color[10];         // Light colors
+uniform float u_light_intensity[10];    // Light intensities
+uniform int u_light_count;              // Number of active lights
+
+out vec4 FragColor;
+
+void main()
+{
+    vec2 uv = v_uv;
+    vec4 color = u_color;
+    color *= texture(u_texture, uv);
+
+    // Shininess
+    if(color.a < u_alpha_cutoff)
+        discard;
+
+    // Normalize vectors
+    vec3 N = normalize(v_normal);
+    vec3 V = normalize(v_camera_position - v_world_position);
+    
+    vec3 K = color.rgb;
+    
+    // Initialize lighting components
+    vec3 ambient = vec3(0.0);
+    vec3 diffuse = vec3(0.0);
+    vec3 specular = vec3(0.0);
+    
+    // Ambient component 
+    ambient = u_ambient_light;
+    
+    // Process each light
+    for(int i = 0; i < u_light_count; i++)
+    {
+        // Light direction and distance
+        vec3 L = normalize(u_light_pos[i] - v_world_position);
+        float distance = length(u_light_pos[i] - v_world_position);
+        
+        // Attenuation
+        float attenuation = 1.0 / (1.0 + 0.1 * distance + 0.01 * distance * distance);
+        vec3 light_intensity = u_light_color[i] * u_light_intensity[i] * attenuation;
+        
+        // Diffuse component
+        float NdotL = max(dot(N, L), 0.0);
+        diffuse += NdotL * light_intensity;
+        
+        // Specular component (Phong)
+        vec3 R = reflect(-L, N);
+        float RdotV = max(dot(R, V), 0.0);
+        specular += pow(RdotV, u_shininess) * light_intensity;
+    }
+    
+    // Combine all components: K * (ambient + diffuse + specular)
+    vec3 final_color = K * (ambient + diffuse + specular);
+    
+    // Output final color with original alpha
+    FragColor = vec4(final_color, color.a);
+}

@@ -140,11 +140,6 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	if (skybox_cubemap)
 		renderSkybox(skybox_cubemap);
 
-
-	// HERE =====================
-	// TODO: RENDER RENDERABLES
-	// ==========================
-
 	// Separate opaque and transparent objects
 	std::vector<sDrawCommand> opaque_commands;
 	std::vector<sDrawCommand> transparent_commands;
@@ -157,8 +152,6 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 			opaque_commands.push_back(command);
 		}
 	}
-
-	
 
 	// Render opaque objects first
 	for (const sDrawCommand& command : opaque_commands) {
@@ -232,8 +225,8 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 
 	glEnable(GL_DEPTH_TEST);
 
-	//chose a shader
-	shader = GFX::Shader::Get("texture");
+	//chose a shader based on material properties
+	shader = GFX::Shader::Get("phong");
 
 	assert(glGetError() == GL_NO_ERROR);
 
@@ -243,18 +236,16 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	shader->enable();
 
 	material->bind(shader);
+	shader->setUniform("u_shininess", 1.0f - material->roughness_factor); // Convert roughness to shininess
 
 	//send lights
 	vec3* light_pos = new vec3[light_list.size()];
-	vec3* light_color = new vec3[light_list.size()]; 
+	vec3* light_color = new vec3[light_list.size()];
 	float* light_int = new float[light_list.size()];
 	vec3* light_dir = new vec3[light_list.size()];
 
-	// ...
-
-	int i=0;
-
-	for (LightEntity *light : light_list) {
+	int i = 0;
+	for (LightEntity* light : light_list) {
 		light_pos[i] = light->root.getGlobalMatrix().getTranslation();
 		light_int[i] = light->intensity;
 		light_color[i] = light->color;
@@ -262,23 +253,22 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 		i++;
 	}
 
+	shader->setUniform("u_light_count", (int)min(light_list.size(), 10));
 	shader->setUniform3Array("u_light_pos", (float*)light_pos, min(light_list.size(), 10));
 	shader->setUniform3Array("u_light_color", (float*)light_color, min(light_list.size(), 10));
-	shader->setUniform3Array("u_light_intensity", (float*)light_int, min(light_list.size(), 10));
+	shader->setUniform1Array("u_light_intensity", light_int, min(light_list.size(), 10));
 	shader->setUniform3Array("u_light_dir", (float*)light_dir, min(light_list.size(), 10));
 
 	delete[] light_pos;
 	delete[] light_color;
 	delete[] light_int;
+	delete[] light_dir;
 
-	
 	//upload uniforms
 	shader->setUniform("u_model", model);
-
-	// Upload camera uniforms
 	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 	shader->setUniform("u_camera_position", camera->eye);
-
+	
 	// Upload time, for cool shader effects
 	float t = getTime();
 	shader->setUniform("u_time", t);
