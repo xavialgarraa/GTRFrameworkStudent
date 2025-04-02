@@ -23,6 +23,7 @@ struct sDrawCommand {
 	GFX::Mesh* mesh;
 	SCN::Material* material;
 	Matrix44 model;
+	float distance_to_camera;
 };
 
 std::vector<sDrawCommand> draw_command_list;
@@ -56,25 +57,37 @@ void Renderer::setupScene()
 		skybox_cubemap = nullptr;
 }
 
+// Updated parseNodes function to include frustum culling
 void parseNodes(SCN::Node* node, Camera* cam) {
-	if (!node) {
+	if (!node || !cam) {
 		return;
 	}
 
 	if (node->mesh) {
+		// Get global matrix and bounding box
+		Matrix44 model = node->getGlobalMatrix();
+		BoundingBox world_bounding = transformBoundingBox(model, node->mesh->box);
 
-		sDrawCommand draw_com;
-		draw_com.mesh = node->mesh;
-		draw_com.material = node->material;
-		draw_com.model = node->getGlobalMatrix();
+		// Frustum culling check
+		if (cam->testBoxInFrustum(world_bounding.center, world_bounding.halfsize)) {
+			sDrawCommand draw_com;
+			draw_com.mesh = node->mesh;
+			draw_com.material = node->material;
+			draw_com.model = model;
 
-		draw_command_list.push_back(draw_com);
+			// Calculate distance to camera for sorting
+			vec3 position = model.getTranslation();
+			draw_com.distance_to_camera = cam->eye.distance(position);
+
+			draw_command_list.push_back(draw_com);
+		}
 	}
 
 	for (SCN::Node* child : node->children) {
 		parseNodes(child, cam);
 	}
 }
+
 
 void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 	// HERE =====================
@@ -110,6 +123,10 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	this->scene = scene;
 	setupScene();
 
+	// Clear previous frame data
+	draw_command_list.clear();
+	light_list.clear();
+
 	parseSceneEntities(scene, camera);
 
 	//set the clear color (the background color)
@@ -123,27 +140,43 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	if (skybox_cubemap)
 		renderSkybox(skybox_cubemap);
 
+
 	// HERE =====================
 	// TODO: RENDER RENDERABLES
 	// ==========================
 
-	std::vector<sDrawCommand> opaque_comm;
-	std::vector<sDrawCommand> transparent_comm;
+	// Separate opaque and transparent objects
+	std::vector<sDrawCommand> opaque_commands;
+	std::vector<sDrawCommand> transparent_commands;
 
 	for (const sDrawCommand& command : draw_command_list) {
-		if (command.material) {
-			transparent_comm.push_back(command);
+		if (command.material && command.material->alpha_mode == SCN::eAlphaMode::BLEND) {
+			transparent_commands.push_back(command);
 		}
 		else {
-			opaque_comm.push_back(command);
+			opaque_commands.push_back(command);
 		}
 	}
 
-	for (sDrawCommand command : draw_command_list) {
-		Renderer::renderMeshWithMaterial(command.model, command.mesh, command.material);
-	}
-}
+	
 
+	// Render opaque objects first
+	for (const sDrawCommand& command : opaque_commands) {
+		renderMeshWithMaterial(command.model, command.mesh, command.material);
+	}
+
+	// Enable blending for transparent objects
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+	// Render transparent objects last
+	for (const sDrawCommand& command : transparent_commands) {
+		renderMeshWithMaterial(command.model, command.mesh, command.material);
+	}
+
+	// Disable blending for next frame
+	glDisable(GL_BLEND);
+}
 
 void Renderer::renderSkybox(GFX::Texture* cubemap)
 {
