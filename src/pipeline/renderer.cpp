@@ -243,6 +243,8 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	vec3* light_color = new vec3[light_list.size()];
 	float* light_int = new float[light_list.size()];
 	vec3* light_dir = new vec3[light_list.size()];
+	int* light_type = new int[light_list.size()];
+	vec2* cone_info = new vec2[light_list.size()];
 
 	int i = 0;
 	for (LightEntity* light : light_list) {
@@ -250,6 +252,8 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 		light_int[i] = light->intensity;
 		light_color[i] = light->color;
 		light_dir[i] = light->root.model.frontVector();
+		light_type[i] = light->light_type;
+		cone_info[i] = light->cone_info;
 		i++;
 	}
 
@@ -257,12 +261,17 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	shader->setUniform3Array("u_light_pos", (float*)light_pos, min(light_list.size(), 10));
 	shader->setUniform3Array("u_light_color", (float*)light_color, min(light_list.size(), 10));
 	shader->setUniform1Array("u_light_intensity", light_int, min(light_list.size(), 10));
+	shader->setUniform1Array("u_light_type", (int*)light_type, min(light_list.size(), 10));
 	shader->setUniform3Array("u_light_dir", (float*)light_dir, min(light_list.size(), 10));
+	shader->setUniform2Array("u_light_cone", (float*)cone_info, min(light_list.size(), 10));
 
 	delete[] light_pos;
 	delete[] light_color;
 	delete[] light_int;
 	delete[] light_dir;
+	delete[] cone_info;
+	delete[] light_type;
+
 
 	//upload uniforms
 	shader->setUniform("u_model", model);
