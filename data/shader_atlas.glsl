@@ -24,6 +24,8 @@ in vec3 a_vertex;
 in vec3 a_normal;
 in vec2 a_coord;
 in vec4 a_color;
+in vec3 a_tangent;
+in vec3 a_bitangent;
 
 uniform vec3 u_camera_pos;
 
@@ -36,6 +38,8 @@ out vec3 v_world_position;
 out vec3 v_normal;
 out vec2 v_uv;
 out vec4 v_color;
+out vec3 v_tangent;
+out vec3 v_bitangent;
 
 uniform float u_time;
 
@@ -43,6 +47,8 @@ void main()
 {	
 	//calcule the normal in camera space (the NormalMatrix is like ViewMatrix but without traslation)
 	v_normal = (u_model * vec4( a_normal, 0.0) ).xyz;
+    v_tangent = (u_model * vec4( a_tangent, 0.0) ).xyz;
+	v_bitangent = (u_model * vec4( a_bitangent, 0.0) ).xyz;
 	
 	//calcule the vertex in object space
 	v_position = a_vertex;
