@@ -153,6 +153,17 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		}
 	}
 
+	// Sort opaque commands front-to-back
+	std::sort(opaque_commands.begin(), opaque_commands.end(), [](const sDrawCommand& a, const sDrawCommand& b) {
+		return a.distance_to_camera < b.distance_to_camera;
+	});
+
+	// Sort transparent commands back-to-front
+	std::sort(transparent_commands.begin(), transparent_commands.end(), [](const sDrawCommand& a, const sDrawCommand& b) {
+		return a.distance_to_camera > b.distance_to_camera;
+	});
+
+
 	// Render opaque objects first
 	for (const sDrawCommand& command : opaque_commands) {
 		renderMeshWithMaterial(command.model, command.mesh, command.material);
