@@ -47,6 +47,12 @@ Renderer::Renderer(const char* shader_atlas_filename)
 
 	sphere.createSphere(1.0f);
 	sphere.uploadToVRAM();
+
+	// 3.1 ASSIGNMENT 3
+	shadow_map = new GFX::Texture();
+	shadow_fbo = new GFX::FBO();
+	
+	shadow_fbo->setDepthOnly(1024, 1024);
 }
 
 void Renderer::setupScene()
@@ -162,7 +168,6 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	std::sort(transparent_commands.begin(), transparent_commands.end(), [](const sDrawCommand& a, const sDrawCommand& b) {
 		return a.distance_to_camera > b.distance_to_camera;
 	});
-
 
 	// Render opaque objects first
 	for (const sDrawCommand& command : opaque_commands) {

@@ -26,6 +26,9 @@ namespace SCN {
 		bool render_wireframe;
 		bool render_boundaries;
 
+		GFX::Texture* shadow_map = nullptr;
+		GFX::FBO* shadow_fbo = nullptr;
+
 		GFX::Texture* skybox_cubemap;
 
 		SCN::Scene* scene;
