@@ -29,6 +29,8 @@ struct sDrawCommand {
 std::vector<sDrawCommand> draw_command_list;
 std::vector<SCN::LightEntity*> light_list;
 
+Camera light_camera;
+
 using namespace SCN;
 
 //some globals
@@ -53,6 +55,27 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	shadow_fbo = new GFX::FBO();
 	
 	shadow_fbo->setDepthOnly(1024, 1024);
+}
+
+// 3.2.1 ASSIGNMENT 3
+void Renderer::setupLight(SCN::LightEntity* light)
+{
+	Vector3 light_position = light->root.model.getTranslation();
+	Vector3 light_direction = light->root.model.frontVector();
+	Vector3 target = light_position + light_direction;
+
+	if (light->light_type == eLightType::SPOT) {
+		float fov = light->cone_info.y * 2.0f;
+		light_camera.setPerspective(fov, 1.0f, 0.1f, 100.f);
+		// light_camera.lookAt(light_position, target, Vector3(0, 1, 0));
+		// A CAMBIAR PORQUE EL LOOKAT REQUIERE DE UNA MATRIZ
+	}
+	else if (light->light_type == eLightType::DIRECTIONAL) {
+		float size = 20.0f;
+		light_camera.setOrthographic(-size, size, -size, size, 0.1f, 100.0f);
+		// light_camera.lookAt(light_position, target, Vector3(0, 1, 0));
+		// A CAMBIAR PORQUE EL LOOKAT REQUIERE DE UNA MATRIZ
+	}
 }
 
 void Renderer::setupScene()

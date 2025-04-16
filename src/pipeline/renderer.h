@@ -42,6 +42,9 @@ namespace SCN {
 		//add here your functions
 		//...
 
+		void setupLight(SCN::LightEntity* light); // 3.2.1 ASSIGNMENT 3
+		void renderShadowMap(SCN::Scene* scene); // 3.2.2 ASSIGNMENT 3
+
 		void parseSceneEntities(SCN::Scene* scene, Camera* camera);
 
 		//renders several elements of the scene
