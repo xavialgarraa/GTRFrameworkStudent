@@ -304,6 +304,9 @@ uniform int u_light_type[10];
 uniform vec3 u_light_dir[10];
 uniform vec2 u_light_cone[10];
 
+uniform sampler2D u_shadow_map;
+uniform mat4 u_shadow_matrix;
+
 out vec4 FragColor;
 
 void main()
@@ -328,6 +331,22 @@ void main()
     vec3 specular = vec3(0.0);
     vec3 final_color = vec3(0.0);
 
+    // 3.3 ASSIGNMENT 3
+    vec4 shadow_coord = u_shadow_matrix * vec4(v_world_position, 1.0);
+    shadow_coord.xyz /= shadow_coord.w;
+
+    float shadow_depth = shadow_coord.z;
+    vec2 shadow_uv = shadow_coord.xy;
+
+    // Check if fragment is outside shadow map bounds
+    float shadow_factor = 1.0;
+    if (shadow_uv.x >= 0.0 && shadow_uv.x <= 1.0 && shadow_uv.y >= 0.0 && shadow_uv.y <= 1.0)
+    {
+        float closest_depth = texture(u_shadow_map, shadow_uv).r;
+        float bias = 0.005;
+        if (shadow_depth - bias > closest_depth)
+            shadow_factor = 0.5; // In shadow
+    }
     
     // Ambient component 
     ambient = u_ambient_light;

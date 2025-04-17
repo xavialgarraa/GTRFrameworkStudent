@@ -337,6 +337,17 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	shader->setUniform("u_model", model);
 	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 	shader->setUniform("u_camera_position", camera->eye);
+
+	// 3.3 ASSIGNMENT 3
+	Matrix44 bias_m;
+	bias_m.setIdentity();
+	bias_m.scale(0.5, 0.5, 0.5);
+	bias_m.translate(1.0, 1.0, 1.0);
+
+	Matrix44 shadow_m = bias_m * light_camera.viewprojection_matrix * model;
+
+	shader->setUniform("u_shadow_matrix", shadow_m);
+	shader->setUniform("u_bias_map", shadow_fbo->depth_texture, 7);
 	
 	// Upload time, for cool shader effects
 	float t = getTime();
