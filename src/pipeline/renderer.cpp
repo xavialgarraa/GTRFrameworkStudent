@@ -78,6 +78,25 @@ void Renderer::setupLight(SCN::LightEntity* light)
 	}
 }
 
+// 3.2.2 ASSIGNMENT 3
+void Renderer::renderShadowMap(SCN::Scene* scene)
+{
+	if (light_list.empty()) return;
+	
+	SCN::LightEntity* shadow_light = light_list[0];
+	setupLight(shadow_light);
+
+	shadow_fbo->bind();
+	glViewport(0, 0, shadow_map->width, shadow_map->height);
+	glEnable(GL_DEPTH_TEST);
+	glClear(GL_DEPTH_BUFFER_BIT);
+	glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+
+	// ...
+
+	shadow_fbo->unbind();
+}
+
 void Renderer::setupScene()
 {
 	if (scene->skybox_filename.size())
@@ -157,6 +176,8 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	light_list.clear();
 
 	parseSceneEntities(scene, camera);
+
+	renderShadowMap(scene); // 3.2.2 ASSIGNMENT 3
 
 	//set the clear color (the background color)
 	glClearColor(scene->background_color.x, scene->background_color.y, scene->background_color.z, 1.0);
