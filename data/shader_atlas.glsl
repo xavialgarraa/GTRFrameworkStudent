@@ -4,6 +4,8 @@ skybox basic.vs skybox.fs
 depth quad.vs depth.fs
 multi basic.vs multi.fs
 phong phong.vs phong.fs
+phong_multipass_ambient phong.vs phong_multipass_ambient.fs
+phong_multipass_light phong.vs phong_multipass_light.fs
 
 compute test.cs
 
@@ -437,3 +439,142 @@ void main()
     FragColor = vec4(final_color, color.a);
 }
 
+\phong_multipass_ambient.fs
+#version 330 core
+
+in vec3 v_position;
+in vec3 v_world_position;
+in vec3 v_normal;
+in vec2 v_uv;
+in vec4 v_color;
+in vec3 v_camera_position;
+
+uniform vec4 u_color;
+uniform sampler2D u_texture;
+uniform float u_alpha_cutoff;
+
+uniform vec3 u_ambient_light;
+
+out vec4 FragColor;
+
+void main()
+{
+    vec4 color = u_color * texture(u_texture, v_uv);
+    if(color.a < u_alpha_cutoff)
+        discard;
+        
+    // Solo aplicamos la componente ambiental
+    FragColor = vec4(color.rgb * u_ambient_light, color.a);
+}
+
+\phong_multipass_light.fs
+#version 330 core
+
+// Mismas entradas que phong.fs
+in vec3 v_position;
+in vec3 v_world_position;
+in vec3 v_normal;
+in vec2 v_uv;
+in vec4 v_color;
+in vec3 v_camera_position;
+
+uniform vec4 u_color;
+uniform sampler2D u_texture;
+uniform float u_alpha_cutoff;
+uniform float u_shininess;
+
+uniform vec3 u_light_pos;
+uniform vec3 u_light_color;
+uniform float u_light_intensity;
+uniform int u_light_type;
+uniform vec3 u_light_dir;
+uniform vec2 u_light_cone;
+
+uniform sampler2D u_shadow_map;
+uniform mat4 u_shadow_matrix;
+
+out vec4 FragColor;
+
+void main()
+{
+    vec4 color = u_color * texture(u_texture, v_uv);
+    if(color.a < u_alpha_cutoff)
+        discard;
+
+    vec3 N = normalize(v_normal);
+    vec3 V = normalize(v_camera_position - v_world_position);
+    vec3 K = color.rgb;
+    
+    vec3 diffuse = vec3(0.0);
+    vec3 specular = vec3(0.0);
+    
+    if(u_light_type == 1) { // Point light
+        vec3 L = normalize(u_light_pos - v_world_position);
+        float distance = length(u_light_pos - v_world_position);
+        float attenuation = 1.0 / (distance * distance);
+        vec3 light_intensity = u_light_color * u_light_intensity * attenuation;
+        
+        float NdotL = clamp(dot(L, N), 0.0, 1.0);
+        diffuse = NdotL * light_intensity;
+        
+        vec3 R = reflect(L, N);
+        float RdotV = clamp(dot(R, V), 0.0, 1.0);
+        specular = pow(RdotV, u_shininess) * light_intensity;
+    }
+    else if(u_light_type == 2){ // Spot light
+            vec3 light_dir = u_light_pos - v_world_position;
+            float distance = length(light_dir);
+            vec3 L = normalize(light_dir);
+
+            vec3 spot_dir = normalize(u_light_dir);
+            float theta = dot(L, spot_dir);
+
+            float outer = cos(u_light_cone.y);
+            float inner = cos(u_light_cone.x);
+
+            if(theta > outer){
+                float epsilon = inner - outer;
+                float spotlight_factor = clamp((theta - outer) / epsilon, 0.0, 1.0);
+
+                float attenuation = 1.0 / (distance * distance);
+
+                vec3 light_intensity = u_light_color * u_light_intensity * attenuation * spotlight_factor;
+
+                // Diffuse component
+                float NdotL = clamp(dot(L, N), 0.0, 1.0);
+                diffuse += NdotL * light_intensity;
+
+                // Specular component (Phong)
+                vec3 R = reflect(L, N);
+                float RdotV = clamp(dot(R, V), 0.0, 1.0);
+                specular += pow(RdotV, u_shininess) * light_intensity;
+            }
+        } else if (u_light_type == 3){ //Directional
+            vec3 L = normalize(-u_light_dir);
+            float distance = length(u_light_pos - v_world_position);
+        
+            // Attenuation
+            float attenuation = 1.0; //No attenuation
+            vec3 light_intensity = u_light_color * u_light_intensity * attenuation;
+        
+            // Diffuse component
+            float NdotL = clamp(dot(L, N), 0.0, 1.0);
+            diffuse += NdotL * light_intensity;
+        
+            // Specular component (Phong)
+            vec3 R = reflect(L, N);
+            float RdotV = clamp(dot(R, V), 0.0, 1.0);
+            specular += pow(RdotV, u_shininess) * light_intensity;
+            
+            // Combine all components: K * (ambient + diffuse + specular)
+            final_color = K * (ambient + diffuse + specular);
+
+        } else{
+            final_color = K; //No light
+
+
+        }
+    
+    
+    FragColor = vec4(K * (diffuse + specular), color.a);
+}
