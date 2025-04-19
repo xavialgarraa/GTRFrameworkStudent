@@ -33,6 +33,9 @@ namespace SCN {
 
 		SCN::Scene* scene;
 
+		bool use_multipass;
+
+
 		//updated every frame
 		Renderer(const char* shaders_atlas_filename );
 
