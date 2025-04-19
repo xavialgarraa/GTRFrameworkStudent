@@ -490,6 +490,7 @@ uniform int u_light_type;
 uniform vec3 u_light_dir;
 uniform vec2 u_light_cone;
 
+
 uniform sampler2D u_shadow_map;
 uniform mat4 u_shadow_matrix;
 
@@ -497,16 +498,23 @@ out vec4 FragColor;
 
 void main()
 {
-    vec4 color = u_color * texture(u_texture, v_uv);
+    vec2 uv = v_uv;
+    vec4 color = u_color;
+    color *= texture(u_texture, uv);
+    
     if(color.a < u_alpha_cutoff)
         discard;
 
+    // Normalize vectors
     vec3 N = normalize(v_normal);
     vec3 V = normalize(v_camera_position - v_world_position);
+    
     vec3 K = color.rgb;
     
+    // Initialize lighting components
     vec3 diffuse = vec3(0.0);
     vec3 specular = vec3(0.0);
+    vec3 final_color = vec3(0.0);
     
     if(u_light_type == 1) { // Point light
         vec3 L = normalize(u_light_pos - v_world_position);
@@ -520,6 +528,9 @@ void main()
         vec3 R = reflect(L, N);
         float RdotV = clamp(dot(R, V), 0.0, 1.0);
         specular = pow(RdotV, u_shininess) * light_intensity;
+
+        final_color = K * (diffuse + specular);
+
     }
     else if(u_light_type == 2){ // Spot light
             vec3 light_dir = u_light_pos - v_world_position;
@@ -548,6 +559,9 @@ void main()
                 vec3 R = reflect(L, N);
                 float RdotV = clamp(dot(R, V), 0.0, 1.0);
                 specular += pow(RdotV, u_shininess) * light_intensity;
+
+                final_color = K * (diffuse + specular);
+
             }
         } else if (u_light_type == 3){ //Directional
             vec3 L = normalize(-u_light_dir);
@@ -564,17 +578,16 @@ void main()
             // Specular component (Phong)
             vec3 R = reflect(L, N);
             float RdotV = clamp(dot(R, V), 0.0, 1.0);
-            specular += pow(RdotV, u_shininess) * light_intensity;
+            specular += pow(RdotV, u_shininess) * light_intensity;  
             
-            // Combine all components: K * (ambient + diffuse + specular)
-            final_color = K * (ambient + diffuse + specular);
+            final_color = K * (diffuse + specular);
 
-        } else{
-            final_color = K; //No light
 
+        } else {
+            final_color = K;
 
         }
+
     
-    
-    FragColor = vec4(K * (diffuse + specular), color.a);
+    FragColor = vec4(final_color, 1.0);
 }

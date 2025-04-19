@@ -53,7 +53,7 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	// 3.1 ASSIGNMENT 3
 	shadow_map = new GFX::Texture();
 	shadow_fbo = new GFX::FBO();
-	
+
 	shadow_fbo->setDepthOnly(1024, 1024);
 }
 
@@ -82,7 +82,7 @@ void Renderer::setupLight(SCN::LightEntity* light)
 void Renderer::renderShadowMap(SCN::Scene* scene)
 {
 	if (light_list.empty()) return;
-	
+
 	SCN::LightEntity* shadow_light = light_list[0];
 	setupLight(shadow_light);
 
@@ -177,7 +177,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 	parseSceneEntities(scene, camera);
 
-	renderShadowMap(scene); // 3.2.2 ASSIGNMENT 3
+	//renderShadowMap(scene); // 3.2.2 ASSIGNMENT 3
 
 	//set the clear color (the background color)
 	glClearColor(scene->background_color.x, scene->background_color.y, scene->background_color.z, 1.0);
@@ -206,12 +206,12 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	// Sort opaque commands front-to-back
 	std::sort(opaque_commands.begin(), opaque_commands.end(), [](const sDrawCommand& a, const sDrawCommand& b) {
 		return a.distance_to_camera < b.distance_to_camera;
-	});
+		});
 
 	// Sort transparent commands back-to-front
 	std::sort(transparent_commands.begin(), transparent_commands.end(), [](const sDrawCommand& a, const sDrawCommand& b) {
 		return a.distance_to_camera > b.distance_to_camera;
-	});
+		});
 
 	// Render opaque objects first
 	for (const sDrawCommand& command : opaque_commands) {
@@ -271,21 +271,22 @@ void Renderer::renderSkybox(GFX::Texture* cubemap)
 	glEnable(GL_DEPTH_TEST);
 }
 
-// Renders a mesh given its transform and material
 void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material)
 {
-	//in case there is nothing to do
 	if (!mesh || !mesh->getNumVertices() || !material)
 		return;
+
 	assert(glGetError() == GL_NO_ERROR);
 
-	//define locals to simplify coding
-	GFX::Shader* shader = NULL;
 	Camera* camera = Camera::current;
-
 	glEnable(GL_DEPTH_TEST);
-
+	
+	//Comment to do (Assigment 2: 3.5 - Multipass rendering)
+	// -------------------------------------------------------------------------
+	/*
+	
 	//chose a shader based on material properties
+	GFX::Shader* shader = NULL;
 	shader = GFX::Shader::Get("phong");
 
 	assert(glGetError() == GL_NO_ERROR);
@@ -348,7 +349,7 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 
 	shader->setUniform("u_shadow_matrix", shadow_m);
 	shader->setUniform("u_bias_map", shadow_fbo->depth_texture, 7);
-	
+
 	// Upload time, for cool shader effects
 	float t = getTime();
 	shader->setUniform("u_time", t);
@@ -366,7 +367,85 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	//set the render state as it was before to avoid problems with future renders
 	glDisable(GL_BLEND);
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+	*/
+	
+	//Assigment 2: 3.5 - Multipass rendering
+	// ---------------------------------------------
+	// 
+	// --------- FIRST PASS: AMBIENT LIGHT ---------
+	GFX::Shader* ambient_shader = GFX::Shader::Get("phong_multipass_ambient");
+	if (ambient_shader)
+	{
+		ambient_shader->enable();
+
+		material->bind(ambient_shader);
+		ambient_shader->setUniform("u_model", model);
+		ambient_shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+		ambient_shader->setUniform("u_camera_position", camera->eye);
+
+
+		// Set ambient light
+		ambient_shader->setUniform("u_ambient_light", scene->ambient_light);
+		ambient_shader->setUniform("u_alpha_cutoff", material->alpha_cutoff);
+
+		// Disable blending for the ambient pass
+		glDisable(GL_BLEND);
+		glDepthMask(GL_TRUE); // Write to depth buffer
+		mesh->render(GL_TRIANGLES);
+
+		ambient_shader->disable();
+	}
+			
+	// --------- SECOND PASS: PER-LIGHT  ---------
+	GFX::Shader* light_shader = GFX::Shader::Get("phong_multipass_light");
+	if (light_shader && !light_list.empty())
+	{
+		light_shader->enable();
+
+		material->bind(light_shader);
+		light_shader->setUniform("u_model", model);
+		light_shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+		light_shader->setUniform("u_camera_position", camera->eye);
+		light_shader->setUniform("u_shininess", 1.0f - material->roughness_factor);
+		light_shader->setUniform("u_alpha_cutoff", material->alpha_cutoff);
+
+		// Enable additive blending
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_ONE, GL_ONE);
+
+		// depth test without writing to depth buffer
+		glDepthFunc(GL_EQUAL);
+		glDepthMask(GL_FALSE);
+
+		for (LightEntity* light : light_list)
+		{
+			light_shader->setUniform("u_light_pos", light->root.getGlobalMatrix().getTranslation());
+			light_shader->setUniform("u_light_color", light->color);
+			light_shader->setUniform("u_light_intensity", light->intensity);
+			light_shader->setUniform("u_light_type", int(light->light_type));
+			light_shader->setUniform("u_light_dir", light->root.model.frontVector());
+			light_shader->setUniform("u_light_cone", light->cone_info);
+
+			mesh->render(GL_TRIANGLES);
+		}
+
+		light_shader->disable();
+
+		// Restore state
+		glDepthFunc(GL_LESS);
+
+		// Restore depth writing
+		glDepthMask(GL_TRUE);
+	}
+
+	glDisable(GL_BLEND);
+	if (render_wireframe)
+		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+	else
+		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
+
 
 #ifndef SKIP_IMGUI
 
