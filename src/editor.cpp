@@ -325,6 +325,7 @@ void SceneEditor::inspectEntity(SCN::BaseEntity* entity)
 #endif
 }
 
+
 void SceneEditor::inspectEntity(SCN::PrefabEntity* entity)
 {
 #ifndef SKIP_IMGUI
@@ -336,6 +337,7 @@ void SceneEditor::inspectEntity(SCN::PrefabEntity* entity)
 	{
 		entity->loadPrefab(entity->filename.c_str());
 	}
+
 
 #endif
 }
@@ -557,8 +559,17 @@ void SceneEditor::inspectObject(SCN::Material* material)
 	ImGui::Checkbox("Two sided", &material->two_sided);
 	ImGui::Combo("AlphaMode", (int*)&material->alpha_mode, "NO_ALPHA\0MASK\0BLEND", 3);
 	ImGui::SliderFloat("Alpha Cutoff", &material->alpha_cutoff, 0.0f, 1.0f);
+
 	ImGui::ColorEdit4("Color", material->color.v); // Edit 4 floats representing a color + alpha
 	ImGui::ColorEdit3("Emissive", material->emissive_factor.v);
+
+	//Slider Assigment 2: 3.6
+	float shininess = (1.0f - material->roughness_factor) * 100.0f;
+	if (ImGui::SliderFloat("Shininess", &shininess, 0.0f, 100.0f)) {
+		material->roughness_factor = 1.0f - (shininess / 100.0f);
+	}
+
+
 	for (size_t i = 0; i < SCN::eTextureChannel::ALL; ++i)
 	{
 		if (material->textures[i].texture && ImGui::TreeNode( &material->textures[i], SCN::texture_channel_str[i] ))
