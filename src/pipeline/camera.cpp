@@ -162,12 +162,12 @@ void Camera::lookAt(const Vector3f& eye, const Vector3f& center, const Vector3f&
 	updateViewMatrix();
 }
 
-//void Camera::lookAt(const Matrix44& m)
-//{
-//	this->eye = m * Vector3f();
-//	this->center = m * Vector3f(0,0,-1);
-//	this->up = m.rotateVector(Vector3f(0, 1, 0));
-//}
+void Camera::lookAt(const Matrix44& m)
+{
+	this->eye = m * Vector3f();
+	this->center = m * Vector3f(0,0,-1);
+	this->up = m.rotateVector(Vector3f(0, 1, 0));
+}
 
 void Camera::extractFrustum()
 {
