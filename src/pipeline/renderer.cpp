@@ -92,8 +92,21 @@ void Renderer::renderShadowMap(SCN::Scene* scene)
 	glEnable(GL_DEPTH_TEST);
 	glClear(GL_DEPTH_BUFFER_BIT);
 	glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+	glCullFace(GL_FRONT);
 
-	// ...
+	GFX::Shader* depth_shader = GFX::Shader::Get("depth");
+	depth_shader->enable();
+	depth_shader->setUniform("u_viewprojection", light_camera.viewprojection_matrix);
+
+	for (const sDrawCommand& command : draw_command_list) {
+		if (command.material->alpha_mode == eAlphaMode::BLEND) continue;
+		depth_shader->setUniform("u_model", command.model);
+		command.mesh->render(GL_TRIANGLES);
+	}
+	depth_shader->disable();
+
+	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	glCullFace(GL_BACK);
 
 	shadow_fbo->unbind();
 }
