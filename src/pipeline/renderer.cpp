@@ -70,14 +70,12 @@ void Renderer::setupLight(SCN::LightEntity* light)
 	if (light->light_type == eLightType::SPOT) {
 		float fov = light->cone_info.y * 2.0f;
 		light_camera.setPerspective(fov, 1.0f, 0.1f, 100.f);
-		// light_camera.lookAt(light_position, target, Vector3(0, 1, 0));
-		// A CAMBIAR PORQUE EL LOOKAT REQUIERE DE UNA MATRIZ
+		light_camera.lookAt(light_position, target, Vector3(0.f, 1.f, 0.f));
 	}
 	else if (light->light_type == eLightType::DIRECTIONAL) {
 		float size = 20.0f;
 		light_camera.setOrthographic(-size, size, -size, size, 0.1f, 100.0f);
-		// light_camera.lookAt(light_position, target, Vector3(0, 1, 0));
-		// A CAMBIAR PORQUE EL LOOKAT REQUIERE DE UNA MATRIZ
+		light_camera.lookAt(light_position, target, Vector3(0.f, 1.f, 0.f));
 	}
 }
 
