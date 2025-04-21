@@ -439,18 +439,20 @@ void Renderer::setupLight(SCN::LightEntity* light)
 {
 	Vector3 light_position = light->root.model.getTranslation();
 	Vector3 light_direction = light->root.model.frontVector();
-	Vector3 target = light_position + light_direction;
+	mat4 light_model = light->root.getGlobalMatrix();
+	vec3 light_pos = light_model.getTranslation();
 
 	if (light->light_type == eLightType::SPOT) {
 		float fov = light->cone_info.y * 2.0f;
 		light_camera.setPerspective(fov, 1.0f, light->near_distance, light->max_distance);
-		light_camera.lookAt(light_position, target, Vector3(0.f, 1.f, 0.f));
 	}
 	else if (light->light_type == eLightType::DIRECTIONAL) {
 		float size = light->area / 2.f;
 		light_camera.setOrthographic(-size, size, -size, size, light->near_distance, light->max_distance);
-		light_camera.lookAt(light_position, target, Vector3(0.f, 1.f, 0.f));
 	}
+	
+	light_camera.lookAt(light_position, light_model * vec3(0.f, 0.f, -1.f), vec3(0.0f, 1.0f, 0.0f));
+
 }
 
 
