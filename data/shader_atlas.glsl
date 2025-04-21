@@ -6,7 +6,7 @@ multi basic.vs multi.fs
 phong phong.vs phong.fs
 phong_multipass_ambient phong.vs phong_multipass_ambient.fs
 phong_multipass_light phong.vs phong_multipass_light.fs
-
+plain basic.vs plain.fs
 compute test.cs
 
 \test.cs
@@ -585,4 +585,25 @@ void main()
     }
 
     FragColor = vec4(final_color, color.a);
+}
+
+\plain.fs
+
+#version 330 core
+in vec2 v_uv;
+
+uniform int u_mask;
+uniform float u_alpha_cutoff;
+uniform sampler2D u_op_map;
+
+out vec4 FragColor;
+
+void main()
+{
+    if (u_mask == 1) {
+        float a = texture(u_op_map, v_uv).r;
+        if (a < u_alpha_cutoff) discard;
+    }
+
+	FragColor = vec4(0.0, 0.0, 0.0, 1.0);
 }

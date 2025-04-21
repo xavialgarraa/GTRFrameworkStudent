@@ -29,6 +29,7 @@ struct sDrawCommand {
 std::vector<sDrawCommand> draw_command_list;
 std::vector<SCN::LightEntity*> light_list;
 
+
 Camera light_camera;
 
 using namespace SCN;
@@ -56,60 +57,12 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	// 3.1 ASSIGNMENT 3
 	shadow_map = new GFX::Texture();
 	shadow_fbo = new GFX::FBO();
-
 	shadow_fbo->setDepthOnly(1024, 1024);
+	shadow_map = shadow_fbo->depth_texture; 
+	shadow_fbo->depth_texture->filename = "Shadow map";
+	
 }
 
-// 3.2.1 ASSIGNMENT 3
-void Renderer::setupLight(SCN::LightEntity* light)
-{
-	Vector3 light_position = light->root.model.getTranslation();
-	Vector3 light_direction = light->root.model.frontVector();
-	Vector3 target = light_position + light_direction;
-
-	if (light->light_type == eLightType::SPOT) {
-		float fov = light->cone_info.y * 2.0f;
-		light_camera.setPerspective(fov, 1.0f, 0.1f, 100.f);
-		light_camera.lookAt(light_position, target, Vector3(0.f, 1.f, 0.f));
-	}
-	else if (light->light_type == eLightType::DIRECTIONAL) {
-		float size = 20.0f;
-		light_camera.setOrthographic(-size, size, -size, size, 0.1f, 100.0f);
-		light_camera.lookAt(light_position, target, Vector3(0.f, 1.f, 0.f));
-	}
-}
-
-// 3.2.2 ASSIGNMENT 3
-void Renderer::renderShadowMap(SCN::Scene* scene)
-{
-	if (light_list.empty()) return;
-
-	SCN::LightEntity* shadow_light = light_list[0];
-	setupLight(shadow_light);
-
-	shadow_fbo->bind();
-	glViewport(0, 0, shadow_map->width, shadow_map->height);
-	glEnable(GL_DEPTH_TEST);
-	glClear(GL_DEPTH_BUFFER_BIT);
-	glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-	glCullFace(GL_FRONT);
-
-	GFX::Shader* depth_shader = GFX::Shader::Get("depth");
-	depth_shader->enable();
-	depth_shader->setUniform("u_viewprojection", light_camera.viewprojection_matrix);
-
-	for (const sDrawCommand& command : draw_command_list) {
-		if (command.material->alpha_mode == eAlphaMode::BLEND) continue;
-		depth_shader->setUniform("u_model", command.model);
-		command.mesh->render(GL_TRIANGLES);
-	}
-	depth_shader->disable();
-
-	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-	glCullFace(GL_BACK);
-
-	shadow_fbo->unbind();
-}
 
 void Renderer::setupScene()
 {
@@ -191,7 +144,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 	parseSceneEntities(scene, camera);
 
-	//renderShadowMap(scene); // 3.2.2 ASSIGNMENT 3
+	renderShadowMap(scene); // 3.2.2 ASSIGNMENT 3
 
 	//set the clear color (the background color)
 	glClearColor(scene->background_color.x, scene->background_color.y, scene->background_color.z, 1.0);
@@ -339,7 +292,7 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 
 			// --------- SHADOW MAP SETUP (for all lights) ---------
 
-			/** 
+			
 			
 			Matrix44 bias_m;
 			bias_m.setIdentity();
@@ -350,7 +303,7 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 			light_shader->setUniform("u_shadow_matrix", shadow_m);
 			light_shader->setUniform("u_bias_map", shadow_fbo->depth_texture, 7);
 			
-			*/
+			
 			
 
 			// Additive blending
@@ -481,6 +434,104 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 
 }
 
+// 3.2.1 ASSIGNMENT 3
+void Renderer::setupLight(SCN::LightEntity* light)
+{
+	Vector3 light_position = light->root.model.getTranslation();
+	Vector3 light_direction = light->root.model.frontVector();
+	Vector3 target = light_position + light_direction;
+
+	if (light->light_type == eLightType::SPOT) {
+		float fov = light->cone_info.y * 2.0f;
+		light_camera.setPerspective(fov, 1.0f, light->near_distance, light->max_distance);
+		light_camera.lookAt(light_position, target, Vector3(0.f, 1.f, 0.f));
+	}
+	else if (light->light_type == eLightType::DIRECTIONAL) {
+		float size = light->area / 2.f;
+		light_camera.setOrthographic(-size, size, -size, size, light->near_distance, light->max_distance);
+		light_camera.lookAt(light_position, target, Vector3(0.f, 1.f, 0.f));
+	}
+}
+
+
+// 3.2.2 ASSIGNMENT 3
+void Renderer::renderShadowMap(SCN::Scene* scene)
+{
+	if (light_list.empty()) return;
+
+	// Buscar la primera luz que proyecta sombras
+	SCN::LightEntity* shadow_light = nullptr;
+	for (auto light : light_list) {
+		if (light->cast_shadows) {
+			shadow_light = light;
+			break;
+		}
+	}
+	if (!shadow_light) return;
+
+
+	//pruebo con directional
+	//SCN::LightEntity* shadow_light = light_list[3];
+
+
+	setupLight(shadow_light);
+
+	shadow_fbo->bind();
+	glViewport(0, 0, 1024, 1024);
+	glClear(GL_DEPTH_BUFFER_BIT);
+
+	glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+
+	glEnable(GL_DEPTH_TEST);
+	glDepthFunc(GL_LESS);
+	glDepthMask(GL_TRUE);
+
+	if (front_face_culling) {
+		glEnable(GL_CULL_FACE);
+		glFrontFace(GL_CW);
+	}
+	else {
+		glDisable(GL_CULL_FACE);
+	}
+
+
+	for (const sDrawCommand& command : draw_command_list) {
+		// Saltar objetos transparentes
+		if (command.material->alpha_mode == eAlphaMode::BLEND)
+			continue;
+
+		GFX::Shader* plain_shader = GFX::Shader::Get("plain");
+		plain_shader->enable();
+		plain_shader->setUniform("u_model", command.model);
+		plain_shader->setUniform("u_viewprojection", light_camera.viewprojection_matrix);
+
+
+		int useMask = (command.material->alpha_mode == SCN::MASK &&
+			command.material->textures[SCN::OPACITY].texture) ? 1 : 0;
+		plain_shader->setUniform("u_mask", useMask);
+		plain_shader->setUniform("u_alpha_cutoff",
+			command.material ? command.material->alpha_cutoff : 0.5f);
+		if (useMask) {
+			plain_shader->setUniform("u_op_map",
+				command.material->textures[SCN::OPACITY].texture, 0);
+		}
+
+
+
+		command.mesh->render(GL_TRIANGLES);
+		plain_shader->disable();
+
+	}
+
+	if (front_face_culling)
+		glFrontFace(GL_CCW);
+
+
+	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	glCullFace(GL_BACK);
+
+	shadow_fbo->unbind();
+}
 
 #ifndef SKIP_IMGUI
 
@@ -490,6 +541,8 @@ void Renderer::showUI()
 	ImGui::Checkbox("Wireframe", &render_wireframe);
 	ImGui::Checkbox("Boundaries", &render_boundaries);
 	ImGui::Checkbox("Multipass Rendering", &use_multipass);
+	ImGui::SliderFloat("Shadow Bias", &shadow_bias, 0.0f, 0.1f);
+	ImGui::Checkbox("Front Face Culling", &front_face_culling);
 
 
 

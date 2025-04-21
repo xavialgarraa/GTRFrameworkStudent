@@ -35,6 +35,10 @@ namespace SCN {
 
 		bool use_multipass;
 
+		float shadow_bias;
+
+		bool front_face_culling;
+
 
 		//updated every frame
 		Renderer(const char* shaders_atlas_filename );
