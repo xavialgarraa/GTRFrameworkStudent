@@ -28,7 +28,7 @@ struct sDrawCommand {
 
 std::vector<sDrawCommand> draw_command_list;
 std::vector<SCN::LightEntity*> light_list;
-
+std::vector<GFX::FBO*> shadow_fbos;
 
 Camera light_camera;
 
@@ -60,7 +60,6 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	shadow_fbo->setDepthOnly(1024, 1024);
 	shadow_map = shadow_fbo->depth_texture; 
 	shadow_fbo->depth_texture->filename = "Shadow map";
-	
 }
 
 
@@ -481,6 +480,44 @@ void Renderer::setupLight(SCN::LightEntity* light)
 void Renderer::renderShadowMap(SCN::Scene* scene)
 {
 	shadow_fbos.clear();
+
+	// Shadow rendering shader
+	GFX::Shader* shadow_shader = GFX::Shader::Get("depth");
+	if (!shadow_shader) return;
+
+	for (LightEntity* light : light_list)
+	{
+		if (!light->cast_shadows)
+			continue;
+
+		// Create shadow FBO for the light
+		GFX::FBO* shadow_fbo = new GFX::FBO();
+		shadow_fbo->setDepthOnly(1024, 1024);
+		shadow_fbos.push_back(shadow_fbo);
+
+		// Setup light camera
+		setupLight(light);
+		light->view_projection = light_camera.viewprojection_matrix;
+
+		// Bind the FBO and set viewport
+		shadow_fbo->bind();
+		glViewport(0, 0, 1024, 1024);
+		glClear(GL_DEPTH_BUFFER_BIT);
+
+		// Use depth-only shader
+		shadow_shader->enable();
+
+		// Render each object to shadow map
+		for (const sDrawCommand& cmd : draw_command_list)
+		{
+			shadow_shader->setUniform("u_model", cmd.model);
+			shadow_shader->setUniform("u_viewprojection", light->view_projection);
+			cmd.mesh->render(GL_TRIANGLES);
+		}
+
+		shadow_shader->disable();
+		shadow_fbo->unbind();
+	}
 	/*
 	for (LightEntity* light : light_list)
 	{

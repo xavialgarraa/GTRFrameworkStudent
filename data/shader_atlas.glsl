@@ -69,15 +69,13 @@ void main()
 \quad.vs
 
 #version 330 core
-
-in vec3 a_vertex;
-in vec2 a_coord;
-out vec2 v_uv;
+uniform mat4 u_model;
+uniform mat4 u_viewprojection;
+layout(location = 0) in vec3 a_position;
 
 void main()
-{	
-	v_uv = a_coord;
-	gl_Position = vec4( a_vertex, 1.0 );
+{
+	gl_Position = u_viewprojection * u_model * vec4(a_position, 1.0);
 }
 
 
