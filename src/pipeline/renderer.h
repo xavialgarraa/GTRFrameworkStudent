@@ -29,6 +29,9 @@ namespace SCN {
 		GFX::Texture* shadow_map = nullptr;
 		GFX::FBO* shadow_fbo = nullptr;
 
+		std::vector<GFX::FBO*> shadow_fbos;
+
+
 		GFX::Texture* skybox_cubemap;
 
 		SCN::Scene* scene;

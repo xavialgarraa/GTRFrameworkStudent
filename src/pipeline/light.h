@@ -24,6 +24,7 @@ namespace SCN {
 		float shadow_bias;
 		vec2 cone_info;
 		float area; //for direct;
+		mat4 view_projection;
 
 		ENTITY_METHODS(LightEntity, LIGHT, 14,4);
 

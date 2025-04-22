@@ -290,21 +290,7 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 			light_shader->setUniform("u_shininess", 1.0f - material->roughness_factor);
 			light_shader->setUniform("u_alpha_cutoff", material->alpha_cutoff);
 
-			// --------- SHADOW MAP SETUP (for all lights) ---------
-
-			
-			
-			Matrix44 bias_m;
-			bias_m.setIdentity();
-			bias_m.scale(0.5, 0.5, 0.5);
-			bias_m.translate(1.0, 1.0, 1.0);
-			Matrix44 shadow_m = bias_m * light_camera.viewprojection_matrix * model;
-
-			light_shader->setUniform("u_shadow_matrix", shadow_m);
-			light_shader->setUniform("u_bias_map", shadow_fbo->depth_texture, 7);
-			
-			
-			
+					
 
 			// Additive blending
 			glEnable(GL_BLEND);
@@ -366,6 +352,7 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 		vec3* light_dir = new vec3[light_list.size()];
 		int* light_type = new int[light_list.size()];
 		vec2* cone_info = new vec2[light_list.size()];
+		Matrix44* shadow_mat = new Matrix44[light_list.size()];
 
 		int i = 0;
 		for (LightEntity* light : light_list) {
@@ -375,9 +362,12 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 			light_dir[i] = light->root.model.frontVector();
 			light_type[i] = light->light_type;
 			cone_info[i] = light->cone_info;
+			shadow_mat[i] = light->view_projection;
 			i++;
 		}
-
+		
+		shader->setUniform("u_numShadows", (int)min(light_list.size(), 10));
+		shader->setUniform("u_bias", shadow_bias);
 		shader->setUniform("u_light_count", (int)min(light_list.size(), 10));
 		shader->setUniform3Array("u_light_pos", (float*)light_pos, min(light_list.size(), 10));
 		shader->setUniform3Array("u_light_color", (float*)light_color, min(light_list.size(), 10));
@@ -401,6 +391,7 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 		shader->setUniform("u_camera_position", camera->eye);
 
 		// 3.3 ASSIGNMENT 3
+		/*
 		Matrix44 bias_m;
 		bias_m.setIdentity();
 		bias_m.scale(0.5, 0.5, 0.5);
@@ -409,7 +400,37 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 		Matrix44 shadow_m = bias_m * light_camera.viewprojection_matrix * model;
 
 		shader->setUniform("u_shadow_matrix", shadow_m);
-		shader->setUniform("u_bias_map", shadow_fbo->depth_texture, 7);
+		shader->setUniform("u_bias_map", shadow_fbo->depth_texture, 2);
+		*/
+		Matrix44 bias_m;
+		bias_m.setIdentity();
+		bias_m.scale(0.5, 0.5, 0.5);
+		bias_m.translate(1.0, 1.0, 1.0);
+		/*
+		i = 0;
+
+		for (LightEntity* light : light_list) {
+			/*
+			* Intento de multi shadow maps
+			* 
+			Matrix44 shadow_m = bias_m * light->view_projection * model;
+			shader->setUniform("u_shadow_matrix_" + std::to_string(i), shadow_m);
+
+			// Enlazar la textura de sombra para cada luz
+			glActiveTexture(GL_TEXTURE2 + i);
+			glBindTexture(GL_TEXTURE_2D, shadow_fbos[i]->depth_texture->texture_id);
+			shader->setUniform("u_shadow_maps_" + std::to_string(i), 2 + i);
+			i++;
+			
+			
+		}
+		
+		*/	
+		
+		
+		shader->setUniform("u_shadow_matrix", shadow_mat[3]);
+		shader->setUniform("u_shadow_maps", shadow_fbo->depth_texture, 2);
+
 
 		// Upload time, for cool shader effects
 		float t = getTime();
@@ -459,31 +480,79 @@ void Renderer::setupLight(SCN::LightEntity* light)
 // 3.2.2 ASSIGNMENT 3
 void Renderer::renderShadowMap(SCN::Scene* scene)
 {
-	if (light_list.empty()) return;
+	shadow_fbos.clear();
+	/*
+	for (LightEntity* light : light_list)
+	{
+		if (!light->cast_shadows)
+			continue;
 
-	// Buscar la primera luz que proyecta sombras
-	SCN::LightEntity* shadow_light = nullptr;
-	for (auto light : light_list) {
-		if (light->cast_shadows) {
-			shadow_light = light;
-			break;
+		// Create FBO and texture
+		GFX::FBO* fbo = new GFX::FBO();
+		fbo->setDepthOnly(1024, 1024);
+		shadow_fbos.push_back(fbo);
+
+		// Setup light camera
+		setupLight(light);
+		light->view_projection = light_camera.viewprojection_matrix;
+
+		// Bind and render
+		fbo->bind();
+		glViewport(0, 0, 1024, 1024);
+		glClear(GL_DEPTH_BUFFER_BIT);
+		glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+		glEnable(GL_DEPTH_TEST);
+		glDepthFunc(GL_LESS);
+		glDepthMask(GL_TRUE);
+
+		if (front_face_culling) {
+			glEnable(GL_CULL_FACE);
+			glFrontFace(GL_CW);
 		}
+		else {
+			glDisable(GL_CULL_FACE);
+		}
+
+		for (const sDrawCommand& command : draw_command_list)
+		{
+			if (command.material->alpha_mode == eAlphaMode::BLEND)
+				continue;
+
+			GFX::Shader* plain_shader = GFX::Shader::Get("plain");
+			plain_shader->enable();
+			plain_shader->setUniform("u_model", command.model);
+			plain_shader->setUniform("u_viewprojection", light_camera.viewprojection_matrix);
+
+			int useMask = (command.material->alpha_mode == SCN::MASK &&
+				command.material->textures[SCN::OPACITY].texture) ? 1 : 0;
+
+			plain_shader->setUniform("u_mask", useMask);
+			plain_shader->setUniform("u_alpha_cutoff", command.material->alpha_cutoff);
+			if (useMask)
+				plain_shader->setUniform("u_op_map", command.material->textures[SCN::OPACITY].texture, 0);
+
+			command.mesh->render(GL_TRIANGLES);
+			plain_shader->disable();
+		}
+
+		glFrontFace(GL_CCW);
+		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+		fbo->unbind();
 	}
-	if (!shadow_light) return;
+	*/
 
+	SCN::LightEntity* light = light_list[3]; //DIRECTIONAL
+	if (!light->cast_shadows) return;	
 
-	//pruebo con directional
-	//SCN::LightEntity* shadow_light = light_list[3];
+	// Setup light camera
+	setupLight(light);
+	light->view_projection = light_camera.viewprojection_matrix;
 
-
-	setupLight(shadow_light);
-
+	// Bind and render
 	shadow_fbo->bind();
 	glViewport(0, 0, 1024, 1024);
 	glClear(GL_DEPTH_BUFFER_BIT);
-
 	glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LESS);
 	glDepthMask(GL_TRUE);
@@ -496,9 +565,8 @@ void Renderer::renderShadowMap(SCN::Scene* scene)
 		glDisable(GL_CULL_FACE);
 	}
 
-
-	for (const sDrawCommand& command : draw_command_list) {
-		// Saltar objetos transparentes
+	for (const sDrawCommand& command : draw_command_list)
+	{
 		if (command.material->alpha_mode == eAlphaMode::BLEND)
 			continue;
 
@@ -507,33 +575,23 @@ void Renderer::renderShadowMap(SCN::Scene* scene)
 		plain_shader->setUniform("u_model", command.model);
 		plain_shader->setUniform("u_viewprojection", light_camera.viewprojection_matrix);
 
-
 		int useMask = (command.material->alpha_mode == SCN::MASK &&
 			command.material->textures[SCN::OPACITY].texture) ? 1 : 0;
+
 		plain_shader->setUniform("u_mask", useMask);
-		plain_shader->setUniform("u_alpha_cutoff",
-			command.material ? command.material->alpha_cutoff : 0.5f);
-		if (useMask) {
-			plain_shader->setUniform("u_op_map",
-				command.material->textures[SCN::OPACITY].texture, 0);
-		}
-
-
+		plain_shader->setUniform("u_alpha_cutoff", command.material->alpha_cutoff);
+		if (useMask)
+			plain_shader->setUniform("u_op_map", command.material->textures[SCN::OPACITY].texture, 0);
 
 		command.mesh->render(GL_TRIANGLES);
 		plain_shader->disable();
-
 	}
 
-	if (front_face_culling)
-		glFrontFace(GL_CCW);
-
-
+	glFrontFace(GL_CCW);
 	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-	glCullFace(GL_BACK);
-
 	shadow_fbo->unbind();
 }
+
 
 #ifndef SKIP_IMGUI
 

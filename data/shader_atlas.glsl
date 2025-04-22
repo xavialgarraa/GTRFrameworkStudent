@@ -282,6 +282,8 @@ void main()
 
 \phong.fs
 #version 330 core
+#define MAX_SHADOWS 4
+
 
 in vec3 v_position;
 in vec3 v_world_position;
@@ -306,8 +308,11 @@ uniform int u_light_type[10];
 uniform vec3 u_light_dir[10];
 uniform vec2 u_light_cone[10];
 
-uniform sampler2D u_shadow_map;
+uniform int u_numShadows;
+uniform sampler2D u_shadow_maps;
 uniform mat4 u_shadow_matrix;
+
+uniform float u_bias;
 
 out vec4 FragColor;
 
@@ -336,26 +341,34 @@ void main()
     // 3.3 ASSIGNMENT 3
     vec4 shadow_coord = u_shadow_matrix * vec4(v_world_position, 1.0);
     shadow_coord.xyz /= shadow_coord.w;
+        
+    vec2 shadow_uv = shadow_coord.xy * 0.5 + 0.5;
 
-    float shadow_depth = shadow_coord.z;
-    vec2 shadow_uv = shadow_coord.xy;
+    float shadow_depth = texture(u_shadow_maps, shadow_uv).x;
+
+    float real_depth = (shadow_coord.z -u_bias) /shadow_coord.w;
+    float current_depth = real_depth * 0.5 + 0.5;
 
     // Check if fragment is outside shadow map bounds
     float shadow_factor = 1.0;
     if (shadow_uv.x >= 0.0 && shadow_uv.x <= 1.0 && shadow_uv.y >= 0.0 && shadow_uv.y <= 1.0)
     {
-        float closest_depth = texture(u_shadow_map, shadow_uv).r;
-        float bias = 0.005;
-        if (shadow_depth - bias > closest_depth)
-            shadow_factor = 0.5; // In shadow
+        float closest_depth = texture(u_shadow_maps, shadow_uv).r;
+        float bias = u_bias;
+        if (current_depth > shadow_depth)
+            shadow_factor = 0.0; // In shadow
     }
-    
+
     // Ambient component 
     ambient = u_ambient_light;
     
     // Process each light
     for(int i = 0; i < u_light_count; i++)
     {
+    	if (i < u_numShadows) {
+
+            
+        }
         if(u_light_type[i] == 1){ //Point
 			// Light direction and distance
             vec3 L = normalize(u_light_pos[i] - v_world_position);
