@@ -62,9 +62,6 @@ Renderer::Renderer(const char* shader_atlas_filename)
 		shadow_fbo->depth_texture->filename = "Shadow map Light - " + std::to_string(i);
 		shadow_fbos.push_back(shadow_fbo);
 	}
-
-
-	
 }
 
 
@@ -129,14 +126,7 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 		else if (entity->getType() == eEntityType::LIGHT) {
 			light_list.push_back((LightEntity*)entity);
 		}
-
-		if (entity->getType() == eEntityType::LIGHT) {
-			LightEntity* light_entt = (LightEntity*)entity;
-			lights.push_back(light_entt);
-		}
-	}
-
-	
+	}	
 }
 
 void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
@@ -256,10 +246,8 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 
 	if (use_multipass)
 	{
-		//Assigment 2: 3.5 - Multipass rendering
-		// ---------------------------------------------
-		// 
-		// --------- FIRST PASS: AMBIENT LIGHT ---------
+		// 3.5 ASSIGNMENT 2
+		// ambient light
 		GFX::Shader* ambient_shader = GFX::Shader::Get("phong_multipass_ambient");
 		if (ambient_shader)
 		{
@@ -283,7 +271,7 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 			ambient_shader->disable();
 		}
 
-		// --------- SECOND PASS: PER-LIGHT  ---------
+		// per-light
 		GFX::Shader* light_shader = GFX::Shader::Get("phong_multipass_light");
 		if (light_shader && !light_list.empty())
 		{
@@ -295,8 +283,6 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 			light_shader->setUniform("u_camera_position", camera->eye);
 			light_shader->setUniform("u_shininess", 1.0f - material->roughness_factor);
 			light_shader->setUniform("u_alpha_cutoff", material->alpha_cutoff);
-
-
 
 			// Additive blending
 			glEnable(GL_BLEND);
@@ -336,19 +322,16 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 			glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 	}
 	else {
-		// Single Pass:
-		//chose a shader based on material properties
+		// single pass
+		// chose a shader based on material properties
 		GFX::Shader* shader = NULL;
 		shader = GFX::Shader::Get("phong");
 
 		assert(glGetError() == GL_NO_ERROR);
 
-		//no shader? then nothing to render
 		if (!shader)
 			return;
 		shader->enable();
-
-
 
 		material->bind(shader);
 		shader->setUniform("u_shininess", 1.0f - material->roughness_factor); // Convert roughness to shininess
@@ -404,22 +387,17 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 		delete[] light_type;
 		delete[] shadow_mat;
 
-
 		//upload uniforms
 		shader->setUniform("u_model", model);
 		shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 		shader->setUniform("u_camera_position", camera->eye);
-
 
 		Matrix44 bias_m;
 		bias_m.setIdentity();
 		bias_m.scale(0.5, 0.5, 0.5);
 		bias_m.translate(1.0, 1.0, 1.0);
 
-
-
 		shader->setUniform("u_shadow_maps", shadow_fbo->depth_texture, 2);
-
 
 		// Upload time, for cool shader effects
 		float t = getTime();
@@ -438,7 +416,6 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 		//set the render state as it was before to avoid problems with future renders
 		glDisable(GL_BLEND);
 		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-
 	}
 }
 
@@ -459,7 +436,6 @@ void Renderer::setupLight(SCN::LightEntity* light)
 	}
 	
 	light_camera.lookAt(light_pos, light_model * vec3(0.f, 0.f, -1.f), vec3(0.0f, 1.0f, 0.0f));
-
 }
 
 
@@ -529,22 +505,15 @@ void Renderer::renderShadowMap(SCN::Scene* scene)
 	
 }
 
-
 #ifndef SKIP_IMGUI
 
 void Renderer::showUI()
 {
-
 	ImGui::Checkbox("Wireframe", &render_wireframe);
 	ImGui::Checkbox("Boundaries", &render_boundaries);
 	ImGui::Checkbox("Multipass Rendering", &use_multipass);
 	ImGui::SliderFloat("Shadow Bias", &shadow_bias, 0.0f, 0.01f);
 	ImGui::Checkbox("Front Face Culling", &front_face_culling);
-
-
-
-	//add here your stuff
-	//...
 }
 
 #else
