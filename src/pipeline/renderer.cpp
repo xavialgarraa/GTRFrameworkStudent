@@ -53,13 +53,18 @@ Renderer::Renderer(const char* shader_atlas_filename)
 
 	sphere.createSphere(1.0f);
 	sphere.uploadToVRAM();
+	
+	// 3.1 ASSIGNMENT 3: Fuerzo la creacion de 4 shadow_fbo
+	for (int i = 0; i < 4; i++)
+	{
+		shadow_fbo = new GFX::FBO();
+		shadow_fbo->setDepthOnly(1024, 1024);
+		shadow_fbo->depth_texture->filename = "Shadow map Light - " + std::to_string(i);
+		shadow_fbos.push_back(shadow_fbo);
+	}
 
-	// 3.1 ASSIGNMENT 3
-	shadow_map = new GFX::Texture();
-	shadow_fbo = new GFX::FBO();
-	shadow_fbo->setDepthOnly(1024, 1024);
-	shadow_map = shadow_fbo->depth_texture; 
-	shadow_fbo->depth_texture->filename = "Shadow map";
+
+	
 }
 
 
@@ -130,6 +135,8 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 			lights.push_back(light_entt);
 		}
 	}
+
+	
 }
 
 void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
@@ -289,7 +296,7 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 			light_shader->setUniform("u_shininess", 1.0f - material->roughness_factor);
 			light_shader->setUniform("u_alpha_cutoff", material->alpha_cutoff);
 
-					
+
 
 			// Additive blending
 			glEnable(GL_BLEND);
@@ -341,6 +348,8 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 			return;
 		shader->enable();
 
+
+
 		material->bind(shader);
 		shader->setUniform("u_shininess", 1.0f - material->roughness_factor); // Convert roughness to shininess
 
@@ -364,7 +373,7 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 			shadow_mat[i] = light->view_projection;
 			i++;
 		}
-		
+
 		shader->setUniform("u_numShadows", (int)min(light_list.size(), 10));
 		shader->setUniform("u_bias", shadow_bias);
 		shader->setUniform("u_light_count", (int)min(light_list.size(), 10));
@@ -376,12 +385,24 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 		shader->setUniform2Array("u_light_cone", (float*)cone_info, min(light_list.size(), 10));
 		shader->setUniform("u_ambient_light", scene->ambient_light);
 
+		// We uploaded all the shadow maps manual
+		shader->setUniform("u_shadow_map_0", (shadow_fbos[0]->depth_texture), 2); //SPOT
+		//shader->setUniform("u_shadow_map_1", (shadow_fbos[1]->depth_texture), 3);
+		//shader->setUniform("u_shadow_map_2", (shadow_fbos[2]->depth_texture), 4);
+		shader->setUniform("u_shadow_map_3", (shadow_fbos[3]->depth_texture), 5); //DIRECTIONAL
+
+		shader->setUniform("u_shadow_matrix_0", shadow_mat[0]); //SPOT
+		//shader->setUniform("u_shadow_matrix_1", shadow_mat[1]);
+		//shader->setUniform("u_shadow_matrix_2", shadow_mat[2]);
+		shader->setUniform("u_shadow_matrix_3", shadow_mat[3]); //DIRECTIONAL
+
 		delete[] light_pos;
 		delete[] light_color;
 		delete[] light_int;
 		delete[] light_dir;
 		delete[] cone_info;
 		delete[] light_type;
+		delete[] shadow_mat;
 
 
 		//upload uniforms
@@ -389,45 +410,14 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 		shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 		shader->setUniform("u_camera_position", camera->eye);
 
-		// 3.3 ASSIGNMENT 3
-		/*
+
 		Matrix44 bias_m;
 		bias_m.setIdentity();
 		bias_m.scale(0.5, 0.5, 0.5);
 		bias_m.translate(1.0, 1.0, 1.0);
 
-		Matrix44 shadow_m = bias_m * light_camera.viewprojection_matrix * model;
 
-		shader->setUniform("u_shadow_matrix", shadow_m);
-		shader->setUniform("u_bias_map", shadow_fbo->depth_texture, 2);
-		*/
-		Matrix44 bias_m;
-		bias_m.setIdentity();
-		bias_m.scale(0.5, 0.5, 0.5);
-		bias_m.translate(1.0, 1.0, 1.0);
-		/*
-		i = 0;
 
-		for (LightEntity* light : light_list) {
-			/*
-			* Intento de multi shadow maps
-			* 
-			Matrix44 shadow_m = bias_m * light->view_projection * model;
-			shader->setUniform("u_shadow_matrix_" + std::to_string(i), shadow_m);
-
-			// Enlazar la textura de sombra para cada luz
-			glActiveTexture(GL_TEXTURE2 + i);
-			glBindTexture(GL_TEXTURE_2D, shadow_fbos[i]->depth_texture->texture_id);
-			shader->setUniform("u_shadow_maps_" + std::to_string(i), 2 + i);
-			i++;
-			
-			
-		}
-		
-		*/	
-		
-		
-		shader->setUniform("u_shadow_matrix", shadow_mat[3]);
 		shader->setUniform("u_shadow_maps", shadow_fbo->depth_texture, 2);
 
 
@@ -450,20 +440,17 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
 	}
-
-
 }
+
 
 // 3.2.1 ASSIGNMENT 3
 void Renderer::setupLight(SCN::LightEntity* light)
 {
-	Vector3 light_position = light->root.model.getTranslation();
-	Vector3 light_direction = light->root.model.frontVector();
 	mat4 light_model = light->root.getGlobalMatrix();
 	vec3 light_pos = light_model.getTranslation();
 
 	if (light->light_type == eLightType::SPOT) {
-		float fov = light->cone_info.y * 2.0f;
+		float fov = light->cone_info.y * 2.f;
 		light_camera.setPerspective(fov, 1.0f, light->near_distance, light->max_distance);
 	}
 	else if (light->light_type == eLightType::DIRECTIONAL) {
@@ -471,7 +458,7 @@ void Renderer::setupLight(SCN::LightEntity* light)
 		light_camera.setOrthographic(-size, size, -size, size, light->near_distance, light->max_distance);
 	}
 	
-	light_camera.lookAt(light_position, light_model * vec3(0.f, 0.f, -1.f), vec3(0.0f, 1.0f, 0.0f));
+	light_camera.lookAt(light_pos, light_model * vec3(0.f, 0.f, -1.f), vec3(0.0f, 1.0f, 0.0f));
 
 }
 
@@ -479,62 +466,25 @@ void Renderer::setupLight(SCN::LightEntity* light)
 // 3.2.2 ASSIGNMENT 3
 void Renderer::renderShadowMap(SCN::Scene* scene)
 {
-	shadow_fbos.clear();
-
-	// Shadow rendering shader
-	GFX::Shader* shadow_shader = GFX::Shader::Get("depth");
-	if (!shadow_shader) return;
-
-	for (LightEntity* light : light_list)
+	
+	for (int i = 0; i < light_list.size(); i++)
 	{
-		if (!light->cast_shadows)
-			continue;
-
-		// Create shadow FBO for the light
-		GFX::FBO* shadow_fbo = new GFX::FBO();
-		shadow_fbo->setDepthOnly(1024, 1024);
-		shadow_fbos.push_back(shadow_fbo);
+		SCN::LightEntity* light = light_list[i];
+		if (!light->cast_shadows) continue;
 
 		// Setup light camera
 		setupLight(light);
 		light->view_projection = light_camera.viewprojection_matrix;
-
-		// Bind the FBO and set viewport
-		shadow_fbo->bind();
-		glViewport(0, 0, 1024, 1024);
-		glClear(GL_DEPTH_BUFFER_BIT);
-
-		// Use depth-only shader
-		shadow_shader->enable();
-
-		// Render each object to shadow map
-		for (const sDrawCommand& cmd : draw_command_list)
-		{
-			shadow_shader->setUniform("u_model", cmd.model);
-			shadow_shader->setUniform("u_viewprojection", light->view_projection);
-			cmd.mesh->render(GL_TRIANGLES);
-		}
-
-		shadow_shader->disable();
-		shadow_fbo->unbind();
 	}
-	/*
-	for (LightEntity* light : light_list)
+	
+	for (int i = 0; i < shadow_fbos.size(); i++)
 	{
-		if (!light->cast_shadows)
+		if (!light_list[i]->cast_shadows)
+		{
 			continue;
-
-		// Create FBO and texture
-		GFX::FBO* fbo = new GFX::FBO();
-		fbo->setDepthOnly(1024, 1024);
-		shadow_fbos.push_back(fbo);
-
-		// Setup light camera
-		setupLight(light);
-		light->view_projection = light_camera.viewprojection_matrix;
-
+		}
 		// Bind and render
-		fbo->bind();
+		shadow_fbos[i]->bind();
 		glViewport(0, 0, 1024, 1024);
 		glClear(GL_DEPTH_BUFFER_BIT);
 		glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
@@ -558,7 +508,7 @@ void Renderer::renderShadowMap(SCN::Scene* scene)
 			GFX::Shader* plain_shader = GFX::Shader::Get("plain");
 			plain_shader->enable();
 			plain_shader->setUniform("u_model", command.model);
-			plain_shader->setUniform("u_viewprojection", light_camera.viewprojection_matrix);
+			plain_shader->setUniform("u_viewprojection", light_list[i]->view_projection);
 
 			int useMask = (command.material->alpha_mode == SCN::MASK &&
 				command.material->textures[SCN::OPACITY].texture) ? 1 : 0;
@@ -574,59 +524,9 @@ void Renderer::renderShadowMap(SCN::Scene* scene)
 
 		glFrontFace(GL_CCW);
 		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-		fbo->unbind();
+		shadow_fbos[i]->unbind();
 	}
-	*/
-
-	SCN::LightEntity* light = light_list[3]; //DIRECTIONAL
-	if (!light->cast_shadows) return;	
-
-	// Setup light camera
-	setupLight(light);
-	light->view_projection = light_camera.viewprojection_matrix;
-
-	// Bind and render
-	shadow_fbo->bind();
-	glViewport(0, 0, 1024, 1024);
-	glClear(GL_DEPTH_BUFFER_BIT);
-	glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-	glEnable(GL_DEPTH_TEST);
-	glDepthFunc(GL_LESS);
-	glDepthMask(GL_TRUE);
-
-	if (front_face_culling) {
-		glEnable(GL_CULL_FACE);
-		glFrontFace(GL_CW);
-	}
-	else {
-		glDisable(GL_CULL_FACE);
-	}
-
-	for (const sDrawCommand& command : draw_command_list)
-	{
-		if (command.material->alpha_mode == eAlphaMode::BLEND)
-			continue;
-
-		GFX::Shader* plain_shader = GFX::Shader::Get("plain");
-		plain_shader->enable();
-		plain_shader->setUniform("u_model", command.model);
-		plain_shader->setUniform("u_viewprojection", light_camera.viewprojection_matrix);
-
-		int useMask = (command.material->alpha_mode == SCN::MASK &&
-			command.material->textures[SCN::OPACITY].texture) ? 1 : 0;
-
-		plain_shader->setUniform("u_mask", useMask);
-		plain_shader->setUniform("u_alpha_cutoff", command.material->alpha_cutoff);
-		if (useMask)
-			plain_shader->setUniform("u_op_map", command.material->textures[SCN::OPACITY].texture, 0);
-
-		command.mesh->render(GL_TRIANGLES);
-		plain_shader->disable();
-	}
-
-	glFrontFace(GL_CCW);
-	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-	shadow_fbo->unbind();
+	
 }
 
 
@@ -638,7 +538,7 @@ void Renderer::showUI()
 	ImGui::Checkbox("Wireframe", &render_wireframe);
 	ImGui::Checkbox("Boundaries", &render_boundaries);
 	ImGui::Checkbox("Multipass Rendering", &use_multipass);
-	ImGui::SliderFloat("Shadow Bias", &shadow_bias, 0.0f, 0.1f);
+	ImGui::SliderFloat("Shadow Bias", &shadow_bias, 0.0f, 0.01f);
 	ImGui::Checkbox("Front Face Culling", &front_face_culling);
 
 

@@ -280,10 +280,11 @@ void main()
     gl_Position = u_viewprojection * vec4(v_world_position, 1.0);
 }
 
+
 \phong.fs
 #version 330 core
+#define MAX_LIGHTS 10
 #define MAX_SHADOWS 4
-
 
 in vec3 v_position;
 in vec3 v_world_position;
@@ -298,159 +299,110 @@ uniform float u_time;
 uniform float u_alpha_cutoff;
 uniform float u_shininess;
 
-// Lighting uniforms
-uniform vec3 u_ambient_light;           // Ambient light for the scene
-uniform vec3 u_light_pos[10];           // Light positions
-uniform vec3 u_light_color[10];         // Light colors
-uniform float u_light_intensity[10];    // Light intensities
-uniform int u_light_count;              // Number of active lights
-uniform int u_light_type[10];
-uniform vec3 u_light_dir[10];
-uniform vec2 u_light_cone[10];
+uniform vec3 u_ambient_light;
 
+uniform vec3 u_light_pos[MAX_LIGHTS];
+uniform vec3 u_light_color[MAX_LIGHTS];
+uniform float u_light_intensity[MAX_LIGHTS];
+uniform int u_light_type[MAX_LIGHTS];
+uniform vec3 u_light_dir[MAX_LIGHTS];
+uniform vec2 u_light_cone[MAX_LIGHTS];
+
+uniform int u_light_count;
 uniform int u_numShadows;
-uniform sampler2D u_shadow_maps;
-uniform mat4 u_shadow_matrix;
 
 uniform float u_bias;
 
+// Shadow maps and matrices
+uniform sampler2D u_shadow_map_0;
+uniform sampler2D u_shadow_map_3;
+uniform mat4 u_shadow_matrix_0;
+uniform mat4 u_shadow_matrix_3;
+
 out vec4 FragColor;
 
-void main()
-{
-    vec2 uv = v_uv;
-    vec4 color = u_color;
-    color *= texture(u_texture, uv);
+// Compute shadow factor from a given map and matrix
+float computeShadow(sampler2D shadow_map, mat4 shadow_matrix) {
+    vec4 shadow_coord = shadow_matrix * vec4(v_world_position, 1.0);
+    shadow_coord.xyz /= shadow_coord.w;
+    vec2 shadow_uv = shadow_coord.xy * 0.5 + 0.5;
 
-    // Shininess
+    // If outside shadow map, return 1.0 (no shadow)
+    if (shadow_uv.x < 0.0 || shadow_uv.x > 1.0 || shadow_uv.y < 0.0 || shadow_uv.y > 1.0)
+        return 1.0;
+
+    float closest_depth = texture(shadow_map, shadow_uv).r;
+    float current_depth = shadow_coord.z * 0.5 + 0.5;
+
+    return (current_depth - u_bias > closest_depth) ? 0.0 : 1.0;
+}
+
+void main() {
+    vec2 uv = v_uv;
+    vec4 color = u_color * texture(u_texture, uv);
+
     if(color.a < u_alpha_cutoff)
         discard;
 
-    // Normalize vectors
     vec3 N = normalize(v_normal);
     vec3 V = normalize(v_camera_position - v_world_position);
-    
     vec3 K = color.rgb;
-    
-    // Initialize lighting components
-    vec3 ambient = vec3(0.0);
+
+    vec3 ambient = u_ambient_light;
     vec3 diffuse = vec3(0.0);
     vec3 specular = vec3(0.0);
-    vec3 final_color = vec3(0.0);
 
-    // 3.3 ASSIGNMENT 3
-    vec4 shadow_coord = u_shadow_matrix * vec4(v_world_position, 1.0);
-    shadow_coord.xyz /= shadow_coord.w;
-        
-    vec2 shadow_uv = shadow_coord.xy * 0.5 + 0.5;
+    for(int i = 0; i < u_light_count; i++) {
+        vec3 L;
+        float attenuation = 1.0;
+        float spotlight_factor = 1.0;
+        float shadow = 1.0;
 
-    float shadow_depth = texture(u_shadow_maps, shadow_uv).x;
-
-    float real_depth = (shadow_coord.z -u_bias) /shadow_coord.w;
-    float current_depth = real_depth * 0.5 + 0.5;
-
-    // Check if fragment is outside shadow map bounds
-    float shadow_factor = 1.0;
-    if (shadow_uv.x >= 0.0 && shadow_uv.x <= 1.0 && shadow_uv.y >= 0.0 && shadow_uv.y <= 1.0)
-    {
-        float closest_depth = texture(u_shadow_maps, shadow_uv).r;
-        float bias = u_bias;
-        if (current_depth > shadow_depth)
-            shadow_factor = 0.0; // In shadow
-    }
-
-    // Ambient component 
-    ambient = u_ambient_light;
-    
-    // Process each light
-    for(int i = 0; i < u_light_count; i++)
-    {
-    	if (i < u_numShadows) {
-
-            
+        if(u_light_type[i] == 1) { // Point light
+            vec3 light_vec = u_light_pos[i] - v_world_position;
+            float distance = length(light_vec);
+            L = normalize(light_vec);
+            attenuation = 1.0 / (distance * distance);
+            if (i == 0) shadow = computeShadow(u_shadow_map_0, u_shadow_matrix_0);
         }
-        if(u_light_type[i] == 1){ //Point
-			// Light direction and distance
-            vec3 L = normalize(u_light_pos[i] - v_world_position);
-            float distance = length(u_light_pos[i] - v_world_position);
-        
-            // Attenuation
-            float attenuation = 1.0 / (distance * distance);
-            vec3 light_intensity = u_light_color[i] * u_light_intensity[i] * attenuation;
-        
-            // Diffuse component
-            float NdotL = clamp(dot(L, N), 0.0, 1.0);
-            diffuse += NdotL * light_intensity;
-        
-            // Specular component (Phong)
-            vec3 R = reflect(L, N);
-            float RdotV = clamp(dot(R, V), 0.0, 1.0);
-            specular += pow(RdotV, u_shininess) * light_intensity;
-            
-            // Combine all components: K * (ambient + diffuse + specular)
-            final_color = K * (ambient + diffuse + specular);
-        
-        
-        } else if(u_light_type[i] == 2){ // Spot light
-            vec3 light_dir = u_light_pos[i] - v_world_position;
-            float distance = length(light_dir);
-            vec3 L = normalize(light_dir);
-
-            vec3 spot_dir = normalize(u_light_dir[i]);
-            float theta = dot(L, spot_dir);
-
+        else if(u_light_type[i] == 2) { // Spot light
+            vec3 light_vec = u_light_pos[i] - v_world_position;
+            float distance = length(light_vec);
+            L = normalize(light_vec);
+            vec3 dir = normalize(u_light_dir[i]);
+            float theta = dot(L, dir);
             float outer = cos(u_light_cone[i].y);
             float inner = cos(u_light_cone[i].x);
-
-            if(theta > outer){
-                float epsilon = inner - outer;
-                float spotlight_factor = clamp((theta - outer) / epsilon, 0.0, 1.0);
-
-                float attenuation = 1.0 / (distance * distance);
-
-                vec3 light_intensity = u_light_color[i] * u_light_intensity[i] * attenuation * spotlight_factor;
-
-                // Diffuse component
-                float NdotL = clamp(dot(L, N), 0.0, 1.0);
-                diffuse += NdotL * light_intensity;
-
-                // Specular component (Phong)
-                vec3 R = reflect(L, N);
-                float RdotV = clamp(dot(R, V), 0.0, 1.0);
-                specular += pow(RdotV, u_shininess) * light_intensity;
-            }
-        } else if (u_light_type[i] == 3){ //Directional
-            vec3 L = normalize(-u_light_dir[i]);
-            float distance = length(u_light_pos[i] - v_world_position);
-        
-            // Attenuation
-            float attenuation = 1.0; //No attenuation
-            vec3 light_intensity = u_light_color[i] * u_light_intensity[i] * attenuation;
-        
-            // Diffuse component
-            float NdotL = clamp(dot(L, N), 0.0, 1.0);
-            diffuse += NdotL * light_intensity;
-        
-            // Specular component (Phong)
-            vec3 R = reflect(L, N);
-            float RdotV = clamp(dot(R, V), 0.0, 1.0);
-            specular += pow(RdotV, u_shininess) * light_intensity;
-            
-            // Combine all components: K * (ambient + diffuse + specular)
-            final_color = K * (ambient + diffuse + specular);
-
-        } else{
-            final_color = K; //No light
-
-
+            float epsilon = inner - outer;
+            spotlight_factor = clamp((theta - outer) / epsilon, 0.0, 1.0);
+            attenuation = 1.0 / (distance * distance);
+            if (i == 0) shadow = computeShadow(u_shadow_map_0, u_shadow_matrix_0);
         }
-       
-        
+        else if(u_light_type[i] == 3) { // Directional light
+            L = normalize(-u_light_dir[i]);
+            attenuation = 1.0;
+            spotlight_factor = 1.0;
+            if (i == 3) shadow = computeShadow(u_shadow_map_3, u_shadow_matrix_3);
+        }
+        else {
+            continue;
+        }
+
+        vec3 light_intensity = u_light_color[i] * u_light_intensity[i] * attenuation * spotlight_factor * shadow;
+
+        float NdotL = max(dot(N, L), 0.0);
+        vec3 R = reflect(-L, N);
+        float RdotV = max(dot(R, V), 0.0);
+
+        diffuse += NdotL * light_intensity;
+        specular += pow(RdotV, u_shininess) * light_intensity;
     }
-    
-    // Output final color with original alpha
+
+    vec3 final_color = K * (ambient + diffuse) + specular;
+
     FragColor = vec4(final_color, color.a);
 }
+
 
 \phong_multipass_ambient.fs
 #version 330 core
@@ -618,5 +570,5 @@ void main()
         if (a < u_alpha_cutoff) discard;
     }
 
-	FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+	FragColor = vec4(0.0);
 }
