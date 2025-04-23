@@ -398,7 +398,7 @@ void main() {
         specular += pow(RdotV, u_shininess) * light_intensity;
     }
 
-    vec3 final_color = K * (ambient + diffuse) + specular;
+    vec3 final_color = K * (ambient + diffuse + specular);
 
     FragColor = vec4(final_color, color.a);
 }
