@@ -564,10 +564,8 @@ void SceneEditor::inspectObject(SCN::Material* material)
 	ImGui::ColorEdit3("Emissive", material->emissive_factor.v);
 
 	//Slider Assigment 2: 3.6
-	float shininess = (1.0f - material->roughness_factor) * 100.0f;
-	if (ImGui::SliderFloat("Shininess", &shininess, 0.0f, 100.0f)) {
-		material->roughness_factor = 1.0f - (shininess / 100.0f);
-	}
+	ImGui::SliderFloat("Shininess", &material->shininess, 10.0f, 100.0f);
+		
 
 
 	for (size_t i = 0; i < SCN::eTextureChannel::ALL; ++i)

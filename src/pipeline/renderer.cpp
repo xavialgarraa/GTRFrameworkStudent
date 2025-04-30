@@ -334,7 +334,7 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 		shader->enable();
 
 		material->bind(shader);
-		shader->setUniform("u_shininess", 1.0f - material->roughness_factor); // Convert roughness to shininess
+		shader->setUniform("u_shininess", material->shininess); // Convert roughness to shininess
 
 		//send lights
 		vec3* light_pos = new vec3[light_list.size()];

@@ -61,6 +61,7 @@ namespace SCN {
 								//material properties
 		Vector4f color;			//color and opacity
 		float roughness_factor;	//how smooth or rough is the surface
+		float shininess = 32.f;
 		float metallic_factor;	//how metallic is the surface
 		Vector3f emissive_factor;//does this object emit light?
 
