@@ -291,6 +291,7 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 			glDepthFunc(GL_EQUAL);
 			glDepthMask(GL_FALSE);
 
+			int index = 0;
 			for (LightEntity* light : light_list)
 			{
 				light_shader->setUniform("u_light_pos", light->root.getGlobalMatrix().getTranslation());
@@ -300,7 +301,18 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 				light_shader->setUniform("u_light_dir", light->root.model.frontVector());
 				light_shader->setUniform("u_light_cone", light->cone_info);
 
+				if (light->cast_shadows && index < shadow_fbos.size()) {
+					light_shader->setUniform("u_shadow_map", shadow_fbos[index]->depth_texture, 2);
+					light_shader->setUniform("u_shadow_matrix", light->view_projection);
+				}
+				else {
+					light_shader->setUniform("u_shadow_map", GFX::Texture::getWhiteTexture(), 2);
+					Matrix44 identity;
+					identity.setIdentity();
+					light_shader->setUniform("u_shadow_matrix", identity);
+				}
 				mesh->render(GL_TRIANGLES);
+				index++;
 			}
 
 			// Upload time, for cool shader effects
