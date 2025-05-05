@@ -29,8 +29,10 @@ namespace SCN {
 		GFX::Texture* shadow_map = nullptr;
 		GFX::FBO* shadow_fbo = nullptr;
 
-		std::vector<GFX::FBO*> shadow_fbos;
+		GFX::FBO* gbuffer_fbo = nullptr;
+		bool use_deferred = false;
 
+		std::vector<GFX::FBO*> shadow_fbos;
 
 		GFX::Texture* skybox_cubemap;
 
@@ -65,6 +67,7 @@ namespace SCN {
 
 		//to render one mesh given its material and transformation matrix
 		void renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
+		void renderToGBuffer();
 
 		void showUI();
 	};

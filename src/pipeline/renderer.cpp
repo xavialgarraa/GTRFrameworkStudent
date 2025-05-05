@@ -62,6 +62,21 @@ Renderer::Renderer(const char* shader_atlas_filename)
 		shadow_fbo->depth_texture->filename = "Shadow map Light - " + std::to_string(i);
 		shadow_fbos.push_back(shadow_fbo);
 	}
+
+	//Assigment 2.1 Generate G-Buffer
+	gbuffer_fbo = new GFX::FBO();
+
+	// Hardcode to test - luego reemplazar
+	int width = 1280;
+	int height = 720;
+
+	gbuffer_fbo->create(width, height, 2, GL_RGBA, GL_UNSIGNED_BYTE, true);
+
+	// Name the textures for debugging
+	gbuffer_fbo->color_textures[0]->filename = "G-Buffer Albedo";
+	gbuffer_fbo->color_textures[1]->filename = "G-Buffer Normals";
+	gbuffer_fbo->depth_texture->filename = "G-Buffer Depth";
+
 }
 
 
@@ -148,6 +163,9 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	// Clear the color and the depth buffer
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	GFX::checkGLErrors();
+
+	renderToGBuffer();
+	gbuffer_fbo->color_textures[0]->toViewport();
 
 	//render skybox
 	if (skybox_cubemap)
@@ -517,6 +535,42 @@ void Renderer::renderShadowMap(SCN::Scene* scene)
 	
 }
 
+void Renderer::renderToGBuffer()
+{
+	// Bind G-Buffer FBO
+	
+	gbuffer_fbo->bind();
+
+	// Clear all buffers
+	glClearColor(0, 0, 0, 1);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+	// Get GBuffer fill shader
+	GFX::Shader* shader = GFX::Shader::Get("gbuffer_fill");
+	
+	shader->enable();
+
+	// Render all opaque objects
+	for (const sDrawCommand& command : draw_command_list)
+	{
+		if (command.material && command.material->alpha_mode == SCN::eAlphaMode::BLEND)
+			continue; // Skip transparent objects
+
+		// Set model matrix
+		shader->setUniform("u_model", command.model);
+		shader->setUniform("u_viewprojection", Camera::current->viewprojection_matrix);
+
+		// Bind material properties
+		command.material->bind(shader);
+
+		// Render mesh
+		command.mesh->render(GL_TRIANGLES);
+	}
+
+	shader->disable();
+	gbuffer_fbo->unbind();
+}
+
 #ifndef SKIP_IMGUI
 
 void Renderer::showUI()
@@ -526,6 +580,14 @@ void Renderer::showUI()
 	ImGui::Checkbox("Multipass Rendering", &use_multipass);
 	ImGui::SliderFloat("Shadow Bias", &shadow_bias, 0.0f, 0.01f);
 	ImGui::Checkbox("Front Face Culling", &front_face_culling);
+
+	ImGui::Checkbox("Deferred Rendering", &use_deferred);
+
+	// Solo usamos use_deferred
+	if (use_deferred && use_multipass)
+	{
+		use_multipass = false;
+	}
 }
 
 #else
