@@ -400,7 +400,7 @@ void main() {
 
     vec3 final_color = K * (ambient + diffuse + specular);
 
-    FragColor = vec4(final_color, color.a);
+    FragColor = vec4(clamp(final_color, 0.0, 1.0), color.a);
 }
 
 
@@ -549,7 +549,7 @@ void main()
         final_color = K;
     }
 
-    FragColor = vec4(final_color, color.a);
+    FragColor = vec4(clamp(final_color, 0.0, 1.0) color.a);
 }
 
 \plain.fs

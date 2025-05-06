@@ -15,6 +15,8 @@ namespace SCN {
 	{
 	public:
 
+		GFX::FBO* shadow_fbo = nullptr;
+
 		eLightType light_type;
 		float intensity;
 		vec3 color;

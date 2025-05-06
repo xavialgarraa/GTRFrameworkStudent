@@ -53,15 +53,6 @@ Renderer::Renderer(const char* shader_atlas_filename)
 
 	sphere.createSphere(1.0f);
 	sphere.uploadToVRAM();
-	
-	// 3.1 ASSIGNMENT 3: Fuerzo la creacion de 4 shadow_fbo
-	for (int i = 0; i < 4; i++)
-	{
-		shadow_fbo = new GFX::FBO();
-		shadow_fbo->setDepthOnly(1024, 1024);
-		shadow_fbo->depth_texture->filename = "Shadow map Light - " + std::to_string(i);
-		shadow_fbos.push_back(shadow_fbo);
-	}
 }
 
 
@@ -239,6 +230,21 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	if (!mesh || !mesh->getNumVertices() || !material)
 		return;
 
+	if (material->alpha_mode == SCN::eAlphaMode::BLEND && use_multipass) {
+		GFX::Shader* shader = GFX::Shader::Get("phong");
+		if (!shader) return;
+		else {
+			shader->enable();
+			material->bind(shader);
+			shader->setUniform("u_model", model);
+			shader->setUniform("u_viewprojection", Camera::current->viewprojection_matrix);
+			shader->setUniform("u_camera_position", Camera::current->eye);
+			mesh->render(GL_TRIANGLES);
+			shader->disable();
+			return;
+		}
+	}
+
 	assert(glGetError() == GL_NO_ERROR);
 
 	Camera* camera = Camera::current;
@@ -302,7 +308,7 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 				light_shader->setUniform("u_light_cone", light->cone_info);
 
 				if (light->cast_shadows && index < shadow_fbos.size()) {
-					light_shader->setUniform("u_shadow_map", shadow_fbos[index]->depth_texture, 2);
+					light_shader->setUniform("u_shadow_map", light->shadow_fbo ? light->shadow_fbo->depth_texture : GFX::Texture::getWhiteTexture(), 2);
 					light_shader->setUniform("u_shadow_matrix", light->view_projection);
 				}
 				else {
@@ -448,6 +454,12 @@ void Renderer::setupLight(SCN::LightEntity* light)
 	}
 	
 	light_camera.lookAt(light_pos, light_model * vec3(0.f, 0.f, -1.f), vec3(0.0f, 1.0f, 0.0f));
+
+	if (light->cast_shadows && light->shadow_fbo == nullptr) {
+		light->shadow_fbo = new GFX::FBO();
+		light->shadow_fbo->setDepthOnly(1024, 1024);
+		light->shadow_fbo->depth_texture->filename = "Shadow map Light";
+	}
 }
 
 
@@ -465,14 +477,11 @@ void Renderer::renderShadowMap(SCN::Scene* scene)
 		light->view_projection = light_camera.viewprojection_matrix;
 	}
 	
-	for (int i = 0; i < shadow_fbos.size(); i++)
+	for (LightEntity* light : light_list)
 	{
-		if (!light_list[i]->cast_shadows)
-		{
-			continue;
-		}
+		if (!light->cast_shadows || !light->shadow_fbo) continue;
 		// Bind and render
-		shadow_fbos[i]->bind();
+		light->shadow_fbo->bind();
 		glViewport(0, 0, 1024, 1024);
 		glClear(GL_DEPTH_BUFFER_BIT);
 		glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
@@ -512,7 +521,7 @@ void Renderer::renderShadowMap(SCN::Scene* scene)
 
 		glFrontFace(GL_CCW);
 		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-		shadow_fbos[i]->unbind();
+		light->shadow_fbo->unbind();
 	}
 	
 }
