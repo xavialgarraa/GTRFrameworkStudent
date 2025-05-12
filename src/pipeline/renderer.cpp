@@ -53,6 +53,15 @@ Renderer::Renderer(const char* shader_atlas_filename)
 
 	sphere.createSphere(1.0f);
 	sphere.uploadToVRAM();
+
+	// 3.1 ASSIGNMENT 3: Fuerzo la creacion de 4 shadow_fbo
+	for (int i = 0; i < 4; i++)
+	{
+		shadow_fbo = new GFX::FBO();
+		shadow_fbo->setDepthOnly(1028, 1028);
+		shadow_fbo->depth_texture->filename = "Shadow map Light - " + std::to_string(i);
+		shadow_fbos.push_back(shadow_fbo);
+	}
 }
 
 
@@ -117,7 +126,7 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 		else if (entity->getType() == eEntityType::LIGHT) {
 			light_list.push_back((LightEntity*)entity);
 		}
-	}	
+	}
 }
 
 void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
@@ -230,21 +239,6 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	if (!mesh || !mesh->getNumVertices() || !material)
 		return;
 
-	if (material->alpha_mode == SCN::eAlphaMode::BLEND && use_multipass) {
-		GFX::Shader* shader = GFX::Shader::Get("phong");
-		if (!shader) return;
-		else {
-			shader->enable();
-			material->bind(shader);
-			shader->setUniform("u_model", model);
-			shader->setUniform("u_viewprojection", Camera::current->viewprojection_matrix);
-			shader->setUniform("u_camera_position", Camera::current->eye);
-			mesh->render(GL_TRIANGLES);
-			shader->disable();
-			return;
-		}
-	}
-
 	assert(glGetError() == GL_NO_ERROR);
 
 	Camera* camera = Camera::current;
@@ -252,8 +246,7 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 
 	if (use_multipass)
 	{
-		// 3.5 ASSIGNMENT 2
-		// ambient light
+		// 1. Ambient Pass
 		GFX::Shader* ambient_shader = GFX::Shader::Get("phong_multipass_ambient");
 		if (ambient_shader)
 		{
@@ -263,95 +256,83 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 			ambient_shader->setUniform("u_model", model);
 			ambient_shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 			ambient_shader->setUniform("u_camera_position", camera->eye);
-
-
-			// Set ambient light
 			ambient_shader->setUniform("u_ambient_light", scene->ambient_light);
 			ambient_shader->setUniform("u_alpha_cutoff", material->alpha_cutoff);
 
-			// Disable blending for the ambient pass
-			glDisable(GL_BLEND);
-			glDepthMask(GL_TRUE); // Write to depth buffer
-			mesh->render(GL_TRIANGLES);
+			if (material->alpha_mode == SCN::eAlphaMode::BLEND) {
+				glDepthMask(GL_FALSE);  
+				glEnable(GL_BLEND);
+				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			}
+			else {
+				glDepthMask(GL_TRUE);   
+				glDisable(GL_BLEND);
+			}
 
+			mesh->render(GL_TRIANGLES);
 			ambient_shader->disable();
 		}
 
-		// per-light
-		GFX::Shader* light_shader = GFX::Shader::Get("phong_multipass_light");
-		if (light_shader && !light_list.empty())
-		{
-			light_shader->enable();
-
-			material->bind(light_shader);
-			light_shader->setUniform("u_model", model);
-			light_shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
-			light_shader->setUniform("u_camera_position", camera->eye);
-			light_shader->setUniform("u_shininess", 1.0f - material->roughness_factor);
-			light_shader->setUniform("u_alpha_cutoff", material->alpha_cutoff);
-
-			// Additive blending
-			glEnable(GL_BLEND);
-			glBlendFunc(GL_ONE, GL_ONE);
-
-			glDepthFunc(GL_EQUAL);
-			glDepthMask(GL_FALSE);
-
-			int index = 0;
-			for (LightEntity* light : light_list)
+		// 2. Light Pass
+		if (material->alpha_mode != SCN::eAlphaMode::BLEND) {
+			GFX::Shader* light_shader = GFX::Shader::Get("phong_multipass_light");
+			if (light_shader && !light_list.empty())
 			{
-				light_shader->setUniform("u_light_pos", light->root.getGlobalMatrix().getTranslation());
-				light_shader->setUniform("u_light_color", light->color);
-				light_shader->setUniform("u_light_intensity", light->intensity);
-				light_shader->setUniform("u_light_type", int(light->light_type));
-				light_shader->setUniform("u_light_dir", light->root.model.frontVector());
-				light_shader->setUniform("u_light_cone", light->cone_info);
+				light_shader->enable();
 
-				if (light->cast_shadows && index < shadow_fbos.size()) {
-					light_shader->setUniform("u_shadow_map", light->shadow_fbo ? light->shadow_fbo->depth_texture : GFX::Texture::getWhiteTexture(), 2);
-					light_shader->setUniform("u_shadow_matrix", light->view_projection);
+				material->bind(light_shader);
+				light_shader->setUniform("u_model", model);
+				light_shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+				light_shader->setUniform("u_camera_position", camera->eye);
+				light_shader->setUniform("u_shininess", 1.0f - material->roughness_factor);
+				light_shader->setUniform("u_alpha_cutoff", material->alpha_cutoff);
+
+				// Additive blending
+				glEnable(GL_BLEND);
+				glBlendFunc(GL_ONE, GL_ONE);
+				glDepthFunc(GL_EQUAL);
+				glDepthMask(GL_FALSE);
+
+				for (LightEntity* light : light_list)
+				{
+					light_shader->setUniform("u_light_pos", light->root.getGlobalMatrix().getTranslation());
+					light_shader->setUniform("u_light_color", light->color);
+					light_shader->setUniform("u_light_intensity", light->intensity);
+					light_shader->setUniform("u_light_type", int(light->light_type));
+					light_shader->setUniform("u_light_dir", light->root.model.frontVector());
+					light_shader->setUniform("u_light_cone", light->cone_info);
+
+					mesh->render(GL_TRIANGLES);
 				}
-				else {
-					light_shader->setUniform("u_shadow_map", GFX::Texture::getWhiteTexture(), 2);
-					Matrix44 identity;
-					identity.setIdentity();
-					light_shader->setUniform("u_shadow_matrix", identity);
-				}
-				mesh->render(GL_TRIANGLES);
-				index++;
+
+				light_shader->disable();
+
+				glDepthFunc(GL_LESS);
+				glDepthMask(GL_TRUE);
+				glDisable(GL_BLEND);
 			}
-
-			// Upload time, for cool shader effects
-			float t = getTime();
-			light_shader->setUniform("u_time", t);
-
-			light_shader->disable();
-
-			// Restaurar estado
-			glDepthFunc(GL_LESS);
-			glDepthMask(GL_TRUE);
 		}
 
-		glDisable(GL_BLEND);
-
-		if (render_wireframe)
-			glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-		else
-			glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+		glPolygonMode(GL_FRONT_AND_BACK, render_wireframe ? GL_LINE : GL_FILL);
 	}
 	else {
-		// single pass
-		// chose a shader based on material properties
+		// Single Pass:
+		//chose a shader based on material properties
 		GFX::Shader* shader = NULL;
 		shader = GFX::Shader::Get("phong");
 
 		assert(glGetError() == GL_NO_ERROR);
 
+		//no shader? then nothing to render
 		if (!shader)
 			return;
 		shader->enable();
 
+
+
 		material->bind(shader);
+		//shader->setUniform("u_shininess", 1.0f - material->roughness_factor); // Convert roughness to shininess
+
 		shader->setUniform("u_shininess", material->shininess); // Convert roughness to shininess
 
 		//send lights
@@ -405,17 +386,13 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 		delete[] light_type;
 		delete[] shadow_mat;
 
+
 		//upload uniforms
 		shader->setUniform("u_model", model);
 		shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 		shader->setUniform("u_camera_position", camera->eye);
 
-		Matrix44 bias_m;
-		bias_m.setIdentity();
-		bias_m.scale(0.5, 0.5, 0.5);
-		bias_m.translate(1.0, 1.0, 1.0);
 
-		shader->setUniform("u_shadow_maps", shadow_fbo->depth_texture, 2);
 
 		// Upload time, for cool shader effects
 		float t = getTime();
@@ -434,7 +411,9 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 		//set the render state as it was before to avoid problems with future renders
 		glDisable(GL_BLEND);
 		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
 	}
+
 }
 
 
@@ -452,66 +431,63 @@ void Renderer::setupLight(SCN::LightEntity* light)
 		float size = light->area / 2.f;
 		light_camera.setOrthographic(-size, size, -size, size, light->near_distance, light->max_distance);
 	}
-	
-	light_camera.lookAt(light_pos, light_model * vec3(0.f, 0.f, -1.f), vec3(0.0f, 1.0f, 0.0f));
 
-	if (light->cast_shadows && light->shadow_fbo == nullptr) {
-		light->shadow_fbo = new GFX::FBO();
-		light->shadow_fbo->setDepthOnly(1024, 1024);
-		light->shadow_fbo->depth_texture->filename = "Shadow map Light";
-	}
+	light_camera.lookAt(light_pos, light_model * vec3(0.f, 0.f, -1.f), vec3(0.0f, 1.0f, 0.0f));
 }
 
 
-// 3.2.2 ASSIGNMENT 3
 void Renderer::renderShadowMap(SCN::Scene* scene)
 {
-	
-	for (int i = 0; i < light_list.size(); i++)
+	for (int i = 0; i < min(light_list.size(), shadow_fbos.size()); ++i)
 	{
 		SCN::LightEntity* light = light_list[i];
 		if (!light->cast_shadows) continue;
 
-		// Setup light camera
+		// Configura la cámara de la luz
 		setupLight(light);
 		light->view_projection = light_camera.viewprojection_matrix;
-	}
-	
-	for (LightEntity* light : light_list)
-	{
-		if (!light->cast_shadows || !light->shadow_fbo) continue;
-		// Bind and render
-		light->shadow_fbo->bind();
+
+		// Prepara el FBO para solo profundidad
+		shadow_fbos[i]->bind();
 		glViewport(0, 0, 1024, 1024);
 		glClear(GL_DEPTH_BUFFER_BIT);
+
+		// Desactiva color writes
 		glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+
+		// Configura profundidad y culling
 		glEnable(GL_DEPTH_TEST);
 		glDepthFunc(GL_LESS);
 		glDepthMask(GL_TRUE);
 
-		if (front_face_culling) {
+		if (front_face_culling)
+		{
 			glEnable(GL_CULL_FACE);
-			glFrontFace(GL_CW);
+			glFrontFace(GL_CW); // culling reverso para evitar shadow acne
 		}
-		else {
+		else
+		{
 			glDisable(GL_CULL_FACE);
 		}
 
+		// Dibujar cada comando sin blending
 		for (const sDrawCommand& command : draw_command_list)
 		{
 			if (command.material->alpha_mode == eAlphaMode::BLEND)
-				continue;
+				continue; // no sombras para objetos transparentes
 
 			GFX::Shader* plain_shader = GFX::Shader::Get("plain");
 			plain_shader->enable();
 			plain_shader->setUniform("u_model", command.model);
-			plain_shader->setUniform("u_viewprojection", light_list[i]->view_projection);
+			plain_shader->setUniform("u_viewprojection", light->view_projection);
 
-			int useMask = (command.material->alpha_mode == SCN::MASK &&
-				command.material->textures[SCN::OPACITY].texture) ? 1 : 0;
+			// Soporte para alpha masking
+			bool useMask = (command.material->alpha_mode == SCN::MASK &&
+				command.material->textures[SCN::OPACITY].texture);
 
-			plain_shader->setUniform("u_mask", useMask);
+			plain_shader->setUniform("u_mask", (int)useMask);
 			plain_shader->setUniform("u_alpha_cutoff", command.material->alpha_cutoff);
+
 			if (useMask)
 				plain_shader->setUniform("u_op_map", command.material->textures[SCN::OPACITY].texture, 0);
 
@@ -519,12 +495,13 @@ void Renderer::renderShadowMap(SCN::Scene* scene)
 			plain_shader->disable();
 		}
 
+		// Restaurar estado de OpenGL
 		glFrontFace(GL_CCW);
 		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-		light->shadow_fbo->unbind();
+		shadow_fbos[i]->unbind();
 	}
-	
 }
+
 
 #ifndef SKIP_IMGUI
 
