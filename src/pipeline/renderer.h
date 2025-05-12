@@ -30,7 +30,7 @@ namespace SCN {
 		GFX::FBO* shadow_fbo = nullptr;
 
 		GFX::FBO* gbuffer_fbo = nullptr;
-		bool use_deferred = false;
+		bool use_deferred = true;
 
 		std::vector<GFX::FBO*> shadow_fbos;
 
