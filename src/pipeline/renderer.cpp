@@ -165,7 +165,11 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	GFX::checkGLErrors();
 
-	renderToGBuffer();
+	if (use_deferred)
+		renderDeferredSinglePass();
+	else
+		renderToGBuffer();
+
 	gbuffer_fbo->color_textures[0]->toViewport();
 
 	//render skybox
@@ -555,6 +559,43 @@ void Renderer::renderToGBuffer()
 
 	shader->disable();
 	gbuffer_fbo->unbind();
+}
+
+void Renderer::renderDeferredSinglePass()
+{
+	gbuffer_fbo->unbind(); // Important: les textures només es poden llegir si el FBO no està actiu
+
+	glClearColor(0, 0, 0, 1);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+	GFX::Shader* shader = GFX::Shader::Get("deferred_lighting");
+	shader->enable();
+
+	// Textures del G-Buffer
+	shader->setTexture("u_gbuffer_color", gbuffer_fbo->color_textures[0], 0);
+	shader->setTexture("u_gbuffer_normal", gbuffer_fbo->color_textures[1], 1);
+	shader->setTexture("u_gbuffer_depth", gbuffer_fbo->depth_texture, 2);
+
+	// Matriu inversa
+	Matrix44 inv_vp = Camera::current->viewprojection_matrix;
+	bool ok = inv_vp.inverse();
+	if (ok) {
+		shader->setUniform("u_inv_viewprojection", inv_vp);
+		shader->setUniform("u_camera_position", Camera::current->eye);
+	}
+	else return;
+
+	// Envia una llum (prova amb la primera de la llista)
+	if (!light_list.empty())
+	{
+		SCN::LightEntity* light = light_list[0];
+		shader->setUniform("u_light_pos", light->root.getGlobalMatrix().getTranslation());
+		shader->setUniform("u_light_color", light->color);
+		shader->setUniform("u_light_intensity", light->intensity);
+	}
+
+	GFX::Mesh::getQuad()->render(GL_TRIANGLES);
+	shader->disable();
 }
 
 

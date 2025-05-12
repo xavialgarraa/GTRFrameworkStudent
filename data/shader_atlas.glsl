@@ -9,6 +9,7 @@ phong_multipass_light phong.vs phong_multipass_light.fs
 plain basic.vs plain.fs
 compute test.cs
 gbuffer_fill basic.vs gbuffer_fill.fs
+deferred_lighting quad.vs deferred_lighting.fs
 
 \test.cs
 #version 430 core
@@ -608,3 +609,55 @@ void main()
     gbuffer_normal = vec4(encoded_normal, 1.0);
 }
 
+\deferred_lighting.fs
+#version 330 core
+
+in vec2 v_uv;
+out vec4 FragColor;
+
+// G-Buffer
+uniform sampler2D u_gbuffer_color;
+uniform sampler2D u_gbuffer_normal;
+uniform sampler2D u_gbuffer_depth;
+
+// Matriu d’inversa de viewprojection
+uniform mat4 u_inv_viewprojection;
+uniform vec3 u_camera_position;
+
+// Llum simple per test
+uniform vec3 u_light_pos;
+uniform vec3 u_light_color;
+uniform float u_light_intensity;
+
+vec3 reconstructPosition(vec2 uv, float depth)
+{
+    float z = depth * 2.0 - 1.0;
+    vec4 clip = vec4(uv * 2.0 - 1.0, z, 1.0);
+    vec4 world = u_inv_viewprojection * clip;
+    return world.xyz / world.w;
+}
+
+void main()
+{
+    vec3 albedo = texture(u_gbuffer_color, v_uv).rgb;
+    vec3 normal = normalize(texture(u_gbuffer_normal, v_uv).rgb * 2.0 - 1.0);
+    float depth = texture(u_gbuffer_depth, v_uv).r;
+
+    if (depth == 1.0)
+        discard;
+
+    vec3 pos = reconstructPosition(v_uv, depth);
+
+    // Phong shading
+    vec3 light_dir = normalize(u_light_pos - pos);
+    vec3 view_dir = normalize(u_camera_position - pos);
+    vec3 half_vec = normalize(light_dir + view_dir);
+
+    float diff = max(dot(normal, light_dir), 0.0);
+    float spec = pow(max(dot(normal, half_vec), 0.0), 16.0);
+
+    vec3 color = albedo * diff * u_light_color * u_light_intensity;
+    color += vec3(1.0) * spec * u_light_color * u_light_intensity;
+
+    FragColor = vec4(color, 1.0);
+}
