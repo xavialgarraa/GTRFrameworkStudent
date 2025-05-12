@@ -165,10 +165,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	GFX::checkGLErrors();
 
-	if (use_deferred)
-		renderDeferredSinglePass();
-	else
-		renderToGBuffer();
+	renderToGBuffer();
 
 	gbuffer_fbo->color_textures[0]->toViewport();
 
@@ -339,102 +336,107 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 		glPolygonMode(GL_FRONT_AND_BACK, render_wireframe ? GL_LINE : GL_FILL);
 	}
 	else {
-		// Single Pass:
-		//chose a shader based on material properties
-		GFX::Shader* shader = NULL;
-		shader = GFX::Shader::Get("phong");
-
-		assert(glGetError() == GL_NO_ERROR);
-
-		//no shader? then nothing to render
-		if (!shader)
-			return;
-		shader->enable();
-
-
-
-		material->bind(shader);
-		//shader->setUniform("u_shininess", 1.0f - material->roughness_factor); // Convert roughness to shininess
-
-		shader->setUniform("u_shininess", material->shininess); // Convert roughness to shininess
-
-		//send lights
-		vec3* light_pos = new vec3[light_list.size()];
-		vec3* light_color = new vec3[light_list.size()];
-		float* light_int = new float[light_list.size()];
-		vec3* light_dir = new vec3[light_list.size()];
-		int* light_type = new int[light_list.size()];
-		vec2* cone_info = new vec2[light_list.size()];
-		Matrix44* shadow_mat = new Matrix44[light_list.size()];
-
-		int i = 0;
-		for (LightEntity* light : light_list) {
-			light_pos[i] = light->root.getGlobalMatrix().getTranslation();
-			light_int[i] = light->intensity;
-			light_color[i] = light->color;
-			light_dir[i] = light->root.model.frontVector();
-			light_type[i] = light->light_type;
-			cone_info[i] = light->cone_info;
-			shadow_mat[i] = light->view_projection;
-			i++;
+		if (use_deferred)
+		{
+			renderDeferredSinglePass(model, mesh, material);
 		}
+		else {
+			// Single Pass:
+		//chose a shader based on material properties
+			GFX::Shader* shader = NULL;
+			shader = GFX::Shader::Get("phong");
 
-		shader->setUniform("u_numShadows", (int)min(light_list.size(), 10));
-		shader->setUniform("u_bias", shadow_bias);
-		shader->setUniform("u_light_count", (int)min(light_list.size(), 10));
-		shader->setUniform3Array("u_light_pos", (float*)light_pos, min(light_list.size(), 10));
-		shader->setUniform3Array("u_light_color", (float*)light_color, min(light_list.size(), 10));
-		shader->setUniform1Array("u_light_intensity", light_int, min(light_list.size(), 10));
-		shader->setUniform1Array("u_light_type", (int*)light_type, min(light_list.size(), 10));
-		shader->setUniform3Array("u_light_dir", (float*)light_dir, min(light_list.size(), 10));
-		shader->setUniform2Array("u_light_cone", (float*)cone_info, min(light_list.size(), 10));
-		shader->setUniform("u_ambient_light", scene->ambient_light);
+			assert(glGetError() == GL_NO_ERROR);
 
-		// We uploaded all the shadow maps manual
-		shader->setUniform("u_shadow_map_0", (shadow_fbos[0]->depth_texture), 2); //SPOT
-		//shader->setUniform("u_shadow_map_1", (shadow_fbos[1]->depth_texture), 3);
-		//shader->setUniform("u_shadow_map_2", (shadow_fbos[2]->depth_texture), 4);
-		shader->setUniform("u_shadow_map_3", (shadow_fbos[3]->depth_texture), 5); //DIRECTIONAL
-
-		shader->setUniform("u_shadow_matrix_0", shadow_mat[0]); //SPOT
-		//shader->setUniform("u_shadow_matrix_1", shadow_mat[1]);
-		//shader->setUniform("u_shadow_matrix_2", shadow_mat[2]);
-		shader->setUniform("u_shadow_matrix_3", shadow_mat[3]); //DIRECTIONAL
-
-		delete[] light_pos;
-		delete[] light_color;
-		delete[] light_int;
-		delete[] light_dir;
-		delete[] cone_info;
-		delete[] light_type;
-		delete[] shadow_mat;
-
-
-		//upload uniforms
-		shader->setUniform("u_model", model);
-		shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
-		shader->setUniform("u_camera_position", camera->eye);
+			//no shader? then nothing to render
+			if (!shader)
+				return;
+			shader->enable();
 
 
 
-		// Upload time, for cool shader effects
-		float t = getTime();
-		shader->setUniform("u_time", t);
+			material->bind(shader);
+			//shader->setUniform("u_shininess", 1.0f - material->roughness_factor); // Convert roughness to shininess
 
-		// Render just the verticies as a wireframe
-		if (render_wireframe)
-			glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+			shader->setUniform("u_shininess", material->shininess); // Convert roughness to shininess
 
-		//do the draw call that renders the mesh into the screen
-		mesh->render(GL_TRIANGLES);
+			//send lights
+			vec3* light_pos = new vec3[light_list.size()];
+			vec3* light_color = new vec3[light_list.size()];
+			float* light_int = new float[light_list.size()];
+			vec3* light_dir = new vec3[light_list.size()];
+			int* light_type = new int[light_list.size()];
+			vec2* cone_info = new vec2[light_list.size()];
+			Matrix44* shadow_mat = new Matrix44[light_list.size()];
 
-		//disable shader
-		shader->disable();
+			int i = 0;
+			for (LightEntity* light : light_list) {
+				light_pos[i] = light->root.getGlobalMatrix().getTranslation();
+				light_int[i] = light->intensity;
+				light_color[i] = light->color;
+				light_dir[i] = light->root.model.frontVector();
+				light_type[i] = light->light_type;
+				cone_info[i] = light->cone_info;
+				shadow_mat[i] = light->view_projection;
+				i++;
+			}
 
-		//set the render state as it was before to avoid problems with future renders
-		glDisable(GL_BLEND);
-		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+			shader->setUniform("u_numShadows", (int)min(light_list.size(), 10));
+			shader->setUniform("u_bias", shadow_bias);
+			shader->setUniform("u_light_count", (int)min(light_list.size(), 10));
+			shader->setUniform3Array("u_light_pos", (float*)light_pos, min(light_list.size(), 10));
+			shader->setUniform3Array("u_light_color", (float*)light_color, min(light_list.size(), 10));
+			shader->setUniform1Array("u_light_intensity", light_int, min(light_list.size(), 10));
+			shader->setUniform1Array("u_light_type", (int*)light_type, min(light_list.size(), 10));
+			shader->setUniform3Array("u_light_dir", (float*)light_dir, min(light_list.size(), 10));
+			shader->setUniform2Array("u_light_cone", (float*)cone_info, min(light_list.size(), 10));
+			shader->setUniform("u_ambient_light", scene->ambient_light);
 
+			// We uploaded all the shadow maps manual
+			shader->setUniform("u_shadow_map_0", (shadow_fbos[0]->depth_texture), 2); //SPOT
+			//shader->setUniform("u_shadow_map_1", (shadow_fbos[1]->depth_texture), 3);
+			//shader->setUniform("u_shadow_map_2", (shadow_fbos[2]->depth_texture), 4);
+			shader->setUniform("u_shadow_map_3", (shadow_fbos[3]->depth_texture), 5); //DIRECTIONAL
+
+			shader->setUniform("u_shadow_matrix_0", shadow_mat[0]); //SPOT
+			//shader->setUniform("u_shadow_matrix_1", shadow_mat[1]);
+			//shader->setUniform("u_shadow_matrix_2", shadow_mat[2]);
+			shader->setUniform("u_shadow_matrix_3", shadow_mat[3]); //DIRECTIONAL
+
+			delete[] light_pos;
+			delete[] light_color;
+			delete[] light_int;
+			delete[] light_dir;
+			delete[] cone_info;
+			delete[] light_type;
+			delete[] shadow_mat;
+
+
+			//upload uniforms
+			shader->setUniform("u_model", model);
+			shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+			shader->setUniform("u_camera_position", camera->eye);
+
+
+
+			// Upload time, for cool shader effects
+			float t = getTime();
+			shader->setUniform("u_time", t);
+
+			// Render just the verticies as a wireframe
+			if (render_wireframe)
+				glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+			//do the draw call that renders the mesh into the screen
+			mesh->render(GL_TRIANGLES);
+
+			//disable shader
+			shader->disable();
+
+			//set the render state as it was before to avoid problems with future renders
+			glDisable(GL_BLEND);
+			glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+		}
 	}
 
 }
@@ -466,7 +468,7 @@ void Renderer::renderShadowMap(SCN::Scene* scene)
 		SCN::LightEntity* light = light_list[i];
 		if (!light->cast_shadows) continue;
 
-		// Configura la c�mara de la luz
+		// Configura la camara de la luz
 		setupLight(light);
 		light->view_projection = light_camera.viewprojection_matrix;
 
@@ -561,43 +563,116 @@ void Renderer::renderToGBuffer()
 	gbuffer_fbo->unbind();
 }
 
-void Renderer::renderDeferredSinglePass()
+void Renderer::renderDeferredSinglePass(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material)
 {
-	gbuffer_fbo->bind(); // Important: les textures només es poden llegir si el FBO no està actiu
+	Camera* camera = Camera::current;
+	int texture_slots = 0;
 
-	glClearColor(0, 0, 0, 1);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	// A quad is usually a mesh of a plane,
+	// always aligned with you view
+	GFX::Mesh* quad = GFX::Mesh::getQuad();
 
-	GFX::Shader* shader = GFX::Shader::Get("deferred_lighting");
+	GFX::Shader* shader = NULL;
+	shader = GFX::Shader::Get("phong_deferred");
+
+	assert(glGetError() == GL_NO_ERROR);
+
+	//no shader? then nothing to render
+	if (!shader)
+		return;
+
 	shader->enable();
 
-	// Textures del G-Buffer
-	shader->setTexture("u_gbuffer_color", gbuffer_fbo->color_textures[0], 0);
-	shader->setTexture("u_gbuffer_normal", gbuffer_fbo->color_textures[1], 1);
-	shader->setTexture("u_gbuffer_depth", gbuffer_fbo->depth_texture, 2);
+	material->bind(shader);
+	
+	//shader->setUniform("u_shininess", 1.0f - material->roughness_factor);
 
-	// Matriu inversa
+	shader->setUniform("u_shininess", material->shininess); // Convert roughness to shininess
+
+	//send lights
+	vec3* light_pos = new vec3[light_list.size()];
+	vec3* light_color = new vec3[light_list.size()];
+	float* light_int = new float[light_list.size()];
+	vec3* light_dir = new vec3[light_list.size()];
+	int* light_type = new int[light_list.size()];
+	vec2* cone_info = new vec2[light_list.size()];
+	Matrix44* shadow_mat = new Matrix44[light_list.size()];
+
+	int i = 0;
+	for (LightEntity* light : light_list) {
+		light_pos[i] = light->root.getGlobalMatrix().getTranslation();
+		light_int[i] = light->intensity;
+		light_color[i] = light->color;
+		light_dir[i] = light->root.model.frontVector();
+		light_type[i] = light->light_type;
+		cone_info[i] = light->cone_info;
+		shadow_mat[i] = light->view_projection;
+		i++;
+	}
+
+	shader->setUniform("u_numShadows", (int)min(light_list.size(), 10));
+	shader->setUniform("u_bias", shadow_bias);
+	shader->setUniform("u_light_count", (int)min(light_list.size(), 10));
+	shader->setUniform3Array("u_light_pos", (float*)light_pos, min(light_list.size(), 10));
+	shader->setUniform3Array("u_light_color", (float*)light_color, min(light_list.size(), 10));
+	shader->setUniform1Array("u_light_intensity", light_int, min(light_list.size(), 10));
+	shader->setUniform1Array("u_light_type", (int*)light_type, min(light_list.size(), 10));
+	shader->setUniform3Array("u_light_dir", (float*)light_dir, min(light_list.size(), 10));
+	shader->setUniform2Array("u_light_cone", (float*)cone_info, min(light_list.size(), 10));
+	shader->setUniform("u_ambient_light", scene->ambient_light);
+
+	// We uploaded all the shadow maps manual
+	shader->setUniform("u_shadow_map_0", (shadow_fbos[0]->depth_texture), texture_slots++); //SPOT
+	//shader->setUniform("u_shadow_map_1", (shadow_fbos[1]->depth_texture), 3);
+	//shader->setUniform("u_shadow_map_2", (shadow_fbos[2]->depth_texture), 4);
+	shader->setUniform("u_shadow_map_3", (shadow_fbos[3]->depth_texture), texture_slots++); //DIRECTIONAL
+
+	shader->setUniform("u_shadow_matrix_0", shadow_mat[0]); //SPOT
+	//shader->setUniform("u_shadow_matrix_1", shadow_mat[1]);
+	//shader->setUniform("u_shadow_matrix_2", shadow_mat[2]);
+	shader->setUniform("u_shadow_matrix_3", shadow_mat[3]); //DIRECTIONAL
+
+	delete[] light_pos;
+	delete[] light_color;
+	delete[] light_int;
+	delete[] light_dir;
+	delete[] cone_info;
+	delete[] light_type;
+	delete[] shadow_mat;
+
+
+	//upload uniforms
+	shader->setUniform("u_model", model);
+	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+	shader->setUniform("u_camera_position", camera->eye);
+
+
+
+	// Upload time, for cool shader effects
+	float t = getTime();
+	shader->setUniform("u_time", t);
+
+	// Bind the GBuffers
+	shader->setTexture("u_gbuffer_color",
+		gbuffer_fbo->color_textures[0],
+		texture_slots++);
+	shader->setTexture("u_gbuffer_normal",
+		gbuffer_fbo->color_textures[1],
+		texture_slots++);
+	shader->setTexture("u_gbuffer_depth",
+		gbuffer_fbo->depth_texture,
+		texture_slots++);
+
 	Matrix44 inv_vp = Camera::current->viewprojection_matrix;
-	bool ok = inv_vp.inverse();
-	if (ok) {
-		shader->setUniform("u_inv_viewprojection", inv_vp);
-		shader->setUniform("u_camera_position", Camera::current->eye);
-	}
-	else return;
+	inv_vp.inverse();
+	shader->setUniform("u_inverse_viewprojection", inv_vp);
+	shader->setUniform("u_inv_screen_size", Vector2f(1.0f / gbuffer_fbo->width, 1.0f / gbuffer_fbo->height));
 
-	// Envia una llum (prova amb la primera de la llista)
-	if (!light_list.empty())
-	{
-		SCN::LightEntity* light = light_list[0];
-		shader->setUniform("u_light_pos", light->root.getGlobalMatrix().getTranslation());
-		shader->setUniform("u_light_color", light->color);
-		shader->setUniform("u_light_intensity", light->intensity);
-	}
+	if (render_wireframe) glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
-	GFX::Mesh::getQuad()->render(GL_TRIANGLES);
+	quad->render(GL_TRIANGLES);
+
 	shader->disable();
-
-	gbuffer_fbo->unbind();
 
 }
 

@@ -9,7 +9,7 @@ phong_multipass_light phong.vs phong_multipass_light.fs
 plain basic.vs plain.fs
 compute test.cs
 gbuffer_fill basic.vs gbuffer_fill.fs
-deferred_lighting quad.vs deferred_lighting.fs
+phong_deferred quad.vs deferred_single.fs
 
 \test.cs
 #version 430 core
@@ -609,55 +609,140 @@ void main()
     gbuffer_normal = vec4(encoded_normal, 1.0);
 }
 
-\deferred_lighting.fs
+
+\deferred_single.fs
 #version 330 core
 
-in vec2 v_uv;
-out vec4 FragColor;
+#define MAX_LIGHTS 10
+#define MAX_SHADOWS 4
 
-// G-Buffer
+in vec2 v_uv;
+
+// G-Buffer textures
 uniform sampler2D u_gbuffer_color;
 uniform sampler2D u_gbuffer_normal;
 uniform sampler2D u_gbuffer_depth;
 
-// Matriu d’inversa de viewprojection
-uniform mat4 u_inv_viewprojection;
+// Camera info
+uniform mat4 u_inverse_viewprojection;
 uniform vec3 u_camera_position;
+uniform vec2 u_camera_nearfar;
 
-// Llum simple per test
-uniform vec3 u_light_pos;
-uniform vec3 u_light_color;
-uniform float u_light_intensity;
+// Lighting uniforms
+uniform vec3 u_ambient_light;
+uniform int u_light_count;
+uniform float u_bias;
 
-vec3 reconstructPosition(vec2 uv, float depth)
-{
+// Light arrays
+uniform vec3 u_light_pos[MAX_LIGHTS];
+uniform vec3 u_light_color[MAX_LIGHTS];
+uniform float u_light_intensity[MAX_LIGHTS];
+uniform int u_light_type[MAX_LIGHTS]; // 1=point, 2=spot, 3=directional
+uniform vec3 u_light_dir[MAX_LIGHTS];
+uniform vec2 u_light_cone[MAX_LIGHTS]; // x=inner angle, y=outer angle
+
+// Shadow maps
+uniform sampler2D u_shadow_map_0;
+uniform sampler2D u_shadow_map_3;
+uniform mat4 u_shadow_matrix_0;
+uniform mat4 u_shadow_matrix_3;
+
+out vec4 FragColor;
+
+vec3 reconstructPosition(vec2 uv, float depth) {
     float z = depth * 2.0 - 1.0;
-    vec4 clip = vec4(uv * 2.0 - 1.0, z, 1.0);
-    vec4 world = u_inv_viewprojection * clip;
-    return world.xyz / world.w;
+    vec2 uv_clip = uv * 2.0 - 1.0;
+    vec4 clip_coords = vec4(uv_clip.x, uv_clip.y, z, 1.0);
+    vec4 world_pos = u_inverse_viewprojection * clip_coords;
+    return world_pos.xyz / world_pos.w;
+}
+
+float computeShadow(sampler2D shadow_map, mat4 shadow_matrix, vec3 world_position) {
+    vec4 shadow_coord = shadow_matrix * vec4(world_position, 1.0);
+    shadow_coord.xyz /= shadow_coord.w;
+    vec2 shadow_uv = shadow_coord.xy * 0.5 + 0.5;
+
+    // If outside shadow map, return 1.0 (no shadow)
+    if (shadow_uv.x < 0.0 || shadow_uv.x > 1.0 || shadow_uv.y < 0.0 || shadow_uv.y > 1.0)
+        return 1.0;
+
+    float closest_depth = texture(shadow_map, shadow_uv).r;
+    float current_depth = shadow_coord.z * 0.5 + 0.5;
+
+    return (current_depth - u_bias > closest_depth) ? 0.0 : 1.0;
 }
 
 void main()
 {
-    vec3 albedo = texture(u_gbuffer_color, v_uv).rgb;
-    vec3 normal = normalize(texture(u_gbuffer_normal, v_uv).rgb * 2.0 - 1.0);
+    // Read G-Buffer data
+    vec4 albedo_spec = texture(u_gbuffer_color, v_uv);
+    vec3 K = albedo_spec.rgb;
+    float shininess = albedo_spec.a * 64.0; // Adjust shininess factor
+    
+    vec3 N = normalize(texture(u_gbuffer_normal, v_uv).xyz * 2.0 - 1.0);
     float depth = texture(u_gbuffer_depth, v_uv).r;
 
-    if (depth == 1.0)
+    if (depth >= 1.0) {
         discard;
+    }
 
-    vec3 pos = reconstructPosition(v_uv, depth);
+    vec3 world_position = reconstructPosition(v_uv, depth);
+    
+    vec3 V = normalize(u_camera_position - world_position);
+    
+    vec3 final_color = K * u_ambient_light;
+    
+    for(int i = 0; i < u_light_count && i < MAX_LIGHTS; i++) {
+        vec3 L;
+        float attenuation = 1.0;
+        float spotlight_factor = 1.0;
+        float shadow = 1.0;
 
-    // Phong shading
-    vec3 light_dir = normalize(u_light_pos - pos);
-    vec3 view_dir = normalize(u_camera_position - pos);
-    vec3 half_vec = normalize(light_dir + view_dir);
+        if(u_light_type[i] == 1) { // Point light
+            vec3 light_vec = u_light_pos[i] - world_position;
+            float distance = length(light_vec);
+            L = normalize(light_vec);
+            attenuation = 1.0 / (distance * distance);
+            
+            if(i == 0) shadow = computeShadow(u_shadow_map_0, u_shadow_matrix_0, world_position);
+        }
+        else if(u_light_type[i] == 2) { // Spot light
+            vec3 light_vec = u_light_pos[i] - world_position;
+            float distance = length(light_vec);
+            L = normalize(light_vec);
+            vec3 dir = normalize(u_light_dir[i]);
+            float theta = dot(L, dir);
+            float outer = cos(u_light_cone[i].y);
+            float inner = cos(u_light_cone[i].x);
+            float epsilon = inner - outer;
+            spotlight_factor = clamp((theta - outer) / epsilon, 0.0, 1.0);
+            attenuation = 1.0 / (distance * distance);
+            
+            if(i == 0) shadow = computeShadow(u_shadow_map_0, u_shadow_matrix_0, world_position);
+        }
+        else if(u_light_type[i] == 3) { // Directional light
+            L = normalize(-u_light_dir[i]);
+            
+            if(i == 3) shadow = computeShadow(u_shadow_map_3, u_shadow_matrix_3, world_position);
+        }
+        else {
+            continue;
+        }
 
-    float diff = max(dot(normal, light_dir), 0.0);
-    float spec = pow(max(dot(normal, half_vec), 0.0), 16.0);
+        vec3 light_intensity = u_light_color[i] * u_light_intensity[i] * attenuation * spotlight_factor * shadow;
 
-    vec3 color = albedo * diff * u_light_color * u_light_intensity;
-    color += vec3(1.0) * spec * u_light_color * u_light_intensity;
+        // Diffuse term
+        float NdotL = max(dot(N, L), 0.0);
+        vec3 diffuse = NdotL * light_intensity;
 
-    FragColor = vec4(color, 1.0);
+        // Specular term 
+        vec3 H = normalize(L + V);
+        float specular_factor = pow(max(dot(N, H), 0.0), shininess);
+        vec3 specular = specular_factor * light_intensity * step(0.0, NdotL);
+
+        // Add to final color
+        final_color += K * diffuse + specular;
+    }
+
+    FragColor = vec4(final_color, 1.0);
 }
