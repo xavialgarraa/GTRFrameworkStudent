@@ -16,6 +16,7 @@
 #include "../utils/utils.h"
 #include "../extra/hdre.h"
 #include "../core/ui.h"
+#include "../core/core.h"
 
 #include "scene.h"
 
@@ -67,8 +68,9 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	gbuffer_fbo = new GFX::FBO();
 
 	// Hardcode to test - luego reemplazar
-	int width = 1280;
-	int height = 720;
+	Vector2ui size = CORE::getWindowSize();
+	int width = size.x;
+	int height = size.y;
 
 	gbuffer_fbo->create(width, height, 2, GL_RGBA, GL_UNSIGNED_BYTE, true);
 
@@ -76,7 +78,6 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	gbuffer_fbo->color_textures[0]->filename = "G-Buffer Albedo";
 	gbuffer_fbo->color_textures[1]->filename = "G-Buffer Normals";
 	gbuffer_fbo->depth_texture->filename = "G-Buffer Depth";
-
 }
 
 

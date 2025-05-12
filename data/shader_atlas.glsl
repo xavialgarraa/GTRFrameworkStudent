@@ -8,6 +8,7 @@ phong_multipass_ambient phong.vs phong_multipass_ambient.fs
 phong_multipass_light phong.vs phong_multipass_light.fs
 plain basic.vs plain.fs
 compute test.cs
+gbuffer_fill basic.vs gbuffer_fill.fs
 
 \test.cs
 #version 430 core
@@ -573,3 +574,37 @@ void main()
 
 	FragColor = vec4(0.0);
 }
+
+
+\gbuffer_fill.fs
+#version 330 core
+
+in vec3 v_normal;
+in vec2 v_uv;
+in vec3 v_world_position;
+
+layout(location = 0) out vec4 gbuffer_albedo;
+layout(location = 1) out vec4 gbuffer_normal;
+
+uniform sampler2D u_color_texture;
+uniform vec4 u_color;
+uniform float u_alpha_cutoff;
+
+void main()
+{
+    vec4 tex_color = texture(u_color_texture, v_uv);
+    vec3 final_color = tex_color.rgb * u_color.rgb;
+
+    // Opcional: alpha masking per a objectes amb textures transparents
+    float alpha = tex_color.a * u_color.a;
+    if(alpha < u_alpha_cutoff)
+        discard;
+
+    // Output cap al G-Buffer
+    gbuffer_albedo = vec4(final_color, 1.0);
+
+    // Encode normal a [0,1] per emmagatzemar-la com a textura
+    vec3 encoded_normal = normalize(v_normal) * 0.5 + 0.5;
+    gbuffer_normal = vec4(encoded_normal, 1.0);
+}
+
