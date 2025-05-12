@@ -563,7 +563,7 @@ void Renderer::renderToGBuffer()
 
 void Renderer::renderDeferredSinglePass()
 {
-	gbuffer_fbo->unbind(); // Important: les textures només es poden llegir si el FBO no està actiu
+	gbuffer_fbo->bind(); // Important: les textures només es poden llegir si el FBO no està actiu
 
 	glClearColor(0, 0, 0, 1);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -596,6 +596,9 @@ void Renderer::renderDeferredSinglePass()
 
 	GFX::Mesh::getQuad()->render(GL_TRIANGLES);
 	shader->disable();
+
+	gbuffer_fbo->unbind();
+
 }
 
 
