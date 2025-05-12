@@ -673,7 +673,6 @@ void Renderer::renderDeferredSinglePass(const Matrix44 model, GFX::Mesh* mesh, S
 	quad->render(GL_TRIANGLES);
 
 	shader->disable();
-
 }
 
 
