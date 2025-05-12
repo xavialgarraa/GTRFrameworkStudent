@@ -280,7 +280,6 @@ void main()
     gl_Position = u_viewprojection * vec4(v_world_position, 1.0);
 }
 
-
 \phong.fs
 #version 330 core
 #define MAX_LIGHTS 10
@@ -395,13 +394,15 @@ void main() {
         float RdotV = max(dot(R, V), 0.0);
 
         diffuse += NdotL * light_intensity;
-        specular += pow(RdotV, u_shininess) * light_intensity;
+    float specular_factor = pow(RdotV, u_shininess) * 16.0; 
+    specular += specular_factor * light_intensity * step(0.0, NdotL);
     }
 
-    vec3 final_color = K * (ambient + diffuse + specular);
+    vec3 final_color = K * (ambient + diffuse) + specular;
 
     FragColor = vec4(final_color, color.a);
 }
+
 
 
 \phong_multipass_ambient.fs
@@ -549,7 +550,7 @@ void main()
         final_color = K;
     }
 
-    FragColor = vec4(final_color, color.a);
+    FragColor = vec4(clamp(final_color, 0.0, 1.0), color.a);
 }
 
 \plain.fs
