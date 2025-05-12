@@ -26,7 +26,7 @@ namespace SCN {
 		float area; //for direct;
 		mat4 view_projection;
 
-		ENTITY_METHODS(LightEntity, LIGHT, 14,4);
+		ENTITY_METHODS(LightEntity, LIGHT, 14, 4);
 
 		LightEntity();
 
