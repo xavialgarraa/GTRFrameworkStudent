@@ -190,6 +190,12 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	if (skybox_cubemap)
 		renderSkybox(skybox_cubemap);
 
+	if (use_deferred)
+	{
+		renderLightVolumes(camera);
+
+	}
+
 	// Separate opaque and transparent objects
 	std::vector<sDrawCommand> opaque_commands;
 	std::vector<sDrawCommand> transparent_commands;
@@ -677,7 +683,7 @@ void Renderer::renderDeferredSinglePass(const Matrix44 model, GFX::Mesh* mesh, S
 	Matrix44 inv_vp = Camera::current->viewprojection_matrix;
 	inv_vp.inverse();
 	shader->setUniform("u_inverse_viewprojection", inv_vp);
-	shader->setUniform("u_inv_screen_size", Vector2f(1.0f / gbuffer_fbo->width, 1.0f / gbuffer_fbo->height));
+	shader->setUniform("u_res_inv", Vector2f(1.0f / gbuffer_fbo->width, 1.0f / gbuffer_fbo->height));
 
 	if (render_wireframe) glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
@@ -686,6 +692,7 @@ void Renderer::renderDeferredSinglePass(const Matrix44 model, GFX::Mesh* mesh, S
 	shader->disable();
 }
 
+<<<<<<< Updated upstream
 void Renderer::renderLightVolumes() {
 	Camera* camera = Camera::current;
 	GFX::Shader* shader = GFX::Shader::Get("light_volume");
@@ -742,6 +749,75 @@ void Renderer::renderLightVolumes() {
 	glFrontFace(GL_CCW);
 }
 
+=======
+void Renderer::renderLightVolumes(Camera* camera)
+{
+	if (!light_list.empty())
+	{
+		GFX::Shader* light_volume_shader = GFX::Shader::Get("light_volume");
+		if (!light_volume_shader)
+			return;
+
+		light_volume_shader->enable();
+
+		// Bind GBuffer textures
+		light_volume_shader->setTexture("u_gbuffer_color", gbuffer_fbo->color_textures[0], 0);
+		light_volume_shader->setTexture("u_gbuffer_normal", gbuffer_fbo->color_textures[1], 1);
+		light_volume_shader->setTexture("u_gbuffer_depth", gbuffer_fbo->depth_texture, 2);
+
+		// Camera and inverse matrices
+		light_volume_shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+		light_volume_shader->setUniform("u_camera_position", camera->eye);
+		Matrix44 inv_view_projection_matrix = camera->inverse_viewprojection_matrix;
+		light_volume_shader->setUniform("u_inverse_viewprojection", inv_view_projection_matrix);
+		light_volume_shader->setUniform("u_res_inv", vec2(1.0f / gbuffer_fbo->width, 1.0f / gbuffer_fbo->height));
+
+		// Enable additive blending
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_ONE, GL_ONE);
+		glDepthMask(GL_FALSE);
+
+		// Disable backface culling since we're inside the sphere
+		glDisable(GL_CULL_FACE);
+
+		// Render each light volume
+		for (LightEntity* light : light_list)
+		{
+			// Skip directional lights as they affect the whole scene
+			if (light->light_type == eLightType::DIRECTIONAL)
+				continue;
+
+			Matrix44 model;
+			Vector3f translation = light->root.getGlobalMatrix().getTranslation();
+			model.setTranslation(translation.x, translation.y, translation.z);
+			model.scale(light->max_distance, light->max_distance, light->max_distance);
+
+			light_volume_shader->setUniform("u_model", model);
+			light_volume_shader->setUniform("u_light_pos", model.getTranslation());
+			light_volume_shader->setUniform("u_light_color", light->color);
+			light_volume_shader->setUniform("u_light_intensity", light->intensity);
+			light_volume_shader->setUniform("u_light_type", (int)light->light_type);
+
+			if (light->light_type == eLightType::SPOT)
+			{
+				light_volume_shader->setUniform("u_light_dir", light->root.model.frontVector());
+				light_volume_shader->setUniform("u_light_cone", light->cone_info);
+			}
+
+			// Render the sphere
+			sphere.render(GL_TRIANGLES);
+		}
+
+		// Restore state
+		glDisable(GL_BLEND);
+		glDepthMask(GL_TRUE);
+		glEnable(GL_CULL_FACE);
+		light_volume_shader->disable();
+	}
+}
+
+
+>>>>>>> Stashed changes
 
 #ifndef SKIP_IMGUI
 

@@ -617,7 +617,7 @@ void main()
 #define MAX_LIGHTS 10
 #define MAX_SHADOWS 4
 
-in vec2 v_uv;
+in vec2 uv;
 
 // G-Buffer textures
 uniform sampler2D u_gbuffer_color;
@@ -641,6 +641,8 @@ uniform float u_light_intensity[MAX_LIGHTS];
 uniform int u_light_type[MAX_LIGHTS]; // 1=point, 2=spot, 3=directional
 uniform vec3 u_light_dir[MAX_LIGHTS];
 uniform vec2 u_light_cone[MAX_LIGHTS]; // x=inner angle, y=outer angle
+
+uniform vec2 u_res_inv;
 
 // Shadow maps
 uniform sampler2D u_shadow_map_0;
@@ -675,19 +677,22 @@ float computeShadow(sampler2D shadow_map, mat4 shadow_matrix, vec3 world_positio
 
 void main()
 {
+
+    vec2 uv = gl_FragCoord.xy * u_res_inv;
+
     // Read G-Buffer data
-    vec4 albedo_spec = texture(u_gbuffer_color, v_uv);
+    vec4 albedo_spec = texture(u_gbuffer_color, uv);
     vec3 K = albedo_spec.rgb;
     float shininess = albedo_spec.a * 64.0; // Adjust shininess factor
     
-    vec3 N = normalize(texture(u_gbuffer_normal, v_uv).xyz * 2.0 - 1.0);
-    float depth = texture(u_gbuffer_depth, v_uv).r;
+    vec3 N = normalize(texture(u_gbuffer_normal, uv).xyz * 2.0 - 1.0);
+    float depth = texture(u_gbuffer_depth, uv).r;
 
     if (depth >= 1.0) {
         discard;
     }
 
-    vec3 world_position = reconstructPosition(v_uv, depth);
+    vec3 world_position = reconstructPosition(uv, depth);
     
     vec3 V = normalize(u_camera_position - world_position);
     
@@ -749,6 +754,7 @@ void main()
 }
 
 \light_volume.fs
+<<<<<<< Updated upstream
 #version 330 core
 
 in vec2 v_uv;
@@ -758,6 +764,16 @@ out vec4 FragColor;
 uniform sampler2D u_gbuffer_color;
 uniform sampler2D u_gbuffer_normal;
 uniform sampler2D u_gbuffer_depth;
+=======
+varying vec3 v_position;
+varying vec3 v_world_position;
+varying vec3 v_normal;
+varying vec2 v_uv;
+
+uniform vec3 u_camera_position;
+uniform mat4 u_inverse_viewprojection;
+uniform vec2 u_res_inv;
+>>>>>>> Stashed changes
 
 uniform vec3 u_light_pos;
 uniform vec3 u_light_color;
@@ -765,6 +781,7 @@ uniform float u_light_intensity;
 uniform int u_light_type;
 uniform vec3 u_light_dir;
 uniform vec2 u_light_cone;
+<<<<<<< Updated upstream
 uniform vec3 u_camera_position;
 uniform vec3 u_ambient_light;
 
@@ -816,3 +833,57 @@ void main()
 
     FragColor = vec4(result, 1.0);
 }
+=======
+
+uniform sampler2D u_gbuffer_color;
+uniform sampler2D u_gbuffer_normal;
+uniform sampler2D u_gbuffer_depth;
+
+vec3 getPosition(vec2 uv, float depth)
+{
+    vec4 pos = u_inverse_viewprojection * vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    return pos.xyz / pos.w;
+}
+
+void main()
+{
+    vec2 uv = gl_FragCoord.xy * u_res_inv;
+    
+    // Reconstruct position from depth
+    float depth = texture2D(u_gbuffer_depth, uv).x;
+    vec3 pos = getPosition(uv, depth);
+    
+    // Sample GBuffer
+    vec4 color = texture2D(u_gbuffer_color, uv);
+    vec3 normal = texture2D(u_gbuffer_normal, uv).xyz * 2.0 - 1.0;
+    
+    // Light calculation
+    vec3 light_vec = u_light_pos - pos;
+    float dist = length(light_vec);
+    light_vec = normalize(light_vec);
+    
+    // Attenuation
+    float att = 1.0 / (1.0 + dist*dist);
+    att *= u_light_intensity;
+    
+    // Spot light cone
+    if (u_light_type == 2) // SPOT
+    {
+        float cos_angle = dot(-light_vec, u_light_dir);
+        float spot = smoothstep(u_light_cone.y, u_light_cone.x, cos_angle);
+        att *= spot;
+    }
+    
+    // Diffuse
+    float NdotL = max(0.0, dot(normal, light_vec));
+    vec3 diffuse = color.rgb * NdotL * att * u_light_color;
+    
+    // Specular (simplified)
+    vec3 view_dir = normalize(u_camera_position - pos);
+    vec3 half_vec = normalize(view_dir + light_vec);
+    float NdotH = max(0.0, dot(normal, half_vec));
+    float specular = pow(NdotH, 32.0) * att;
+    
+    gl_FragColor = vec4(diffuse + specular * u_light_color, 1.0);
+}
+>>>>>>> Stashed changes

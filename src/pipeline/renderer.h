@@ -1,6 +1,7 @@
 #pragma once
 #include "scene.h"
 #include "prefab.h"
+#include "camera.h"
 
 #include "light.h"
 
@@ -31,7 +32,7 @@ namespace SCN {
 		GFX::FBO* lighting_fbo = nullptr;
 
 		GFX::FBO* gbuffer_fbo = nullptr;
-		bool use_deferred = true;
+		bool use_deferred = false;
 
 		std::vector<GFX::FBO*> shadow_fbos;
 
@@ -70,7 +71,11 @@ namespace SCN {
 		void renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
 		void renderToGBuffer();
 		void renderDeferredSinglePass(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
+<<<<<<< Updated upstream
 		void renderLightVolumes();
+=======
+		void renderLightVolumes(Camera* camera);
+>>>>>>> Stashed changes
 
 
 		void showUI();
