@@ -78,6 +78,11 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	gbuffer_fbo->color_textures[0]->filename = "G-Buffer Albedo";
 	gbuffer_fbo->color_textures[1]->filename = "G-Buffer Normals";
 	gbuffer_fbo->depth_texture->filename = "G-Buffer Depth";
+
+	lighting_fbo = new GFX::FBO();
+	lighting_fbo->create(width, height, 1, GL_RGBA, GL_UNSIGNED_BYTE, true);
+	lighting_fbo->color_textures[0]->filename = "Lighting Result";
+	lighting_fbo->depth_texture->filename = "Lighting Depth";
 }
 
 
@@ -166,6 +171,18 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	GFX::checkGLErrors();
 
 	renderToGBuffer();
+
+	gbuffer_fbo->depth_texture->copyTo(lighting_fbo->depth_texture);
+
+	lighting_fbo->bind();
+
+	glClearColor(0, 0, 0, 1);
+	glClear(GL_COLOR_BUFFER_BIT);
+
+	renderLightVolumes();
+
+	lighting_fbo->unbind();
+
 
 	gbuffer_fbo->color_textures[0]->toViewport();
 
@@ -653,15 +670,9 @@ void Renderer::renderDeferredSinglePass(const Matrix44 model, GFX::Mesh* mesh, S
 	shader->setUniform("u_time", t);
 
 	// Bind the GBuffers
-	shader->setTexture("u_gbuffer_color",
-		gbuffer_fbo->color_textures[0],
-		texture_slots++);
-	shader->setTexture("u_gbuffer_normal",
-		gbuffer_fbo->color_textures[1],
-		texture_slots++);
-	shader->setTexture("u_gbuffer_depth",
-		gbuffer_fbo->depth_texture,
-		texture_slots++);
+	shader->setTexture("u_gbuffer_color", gbuffer_fbo->color_textures[0], texture_slots++);
+	shader->setTexture("u_gbuffer_normal", gbuffer_fbo->color_textures[1], texture_slots++);
+	shader->setTexture("u_gbuffer_depth", gbuffer_fbo->depth_texture, texture_slots++);
 
 	Matrix44 inv_vp = Camera::current->viewprojection_matrix;
 	inv_vp.inverse();
@@ -675,6 +686,62 @@ void Renderer::renderDeferredSinglePass(const Matrix44 model, GFX::Mesh* mesh, S
 	shader->disable();
 }
 
+void Renderer::renderLightVolumes() {
+	Camera* camera = Camera::current;
+	GFX::Shader* shader = GFX::Shader::Get("light_volume");
+	if (!shader) return;
+
+	lighting_fbo->bind();
+
+	// Configuració OpenGL
+	glDepthFunc(GL_GREATER);
+	glDepthMask(GL_FALSE);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_ONE, GL_ONE);
+	glFrontFace(GL_CW);
+
+	shader->enable();
+
+	// Uniformes globals
+	Matrix44 inv_vp = camera->viewprojection_matrix;
+	inv_vp.inverse();
+	shader->setUniform("u_inverse_viewprojection", inv_vp);
+	shader->setUniform("u_inv_screen_size", Vector2f(1.0f / lighting_fbo->width, 1.0f / lighting_fbo->height));
+
+	// G-Buffer Textures
+	shader->setTexture("u_gbuffer_color", gbuffer_fbo->color_textures[0], 0);
+	shader->setTexture("u_gbuffer_normal", gbuffer_fbo->color_textures[1], 1);
+	shader->setTexture("u_gbuffer_depth", gbuffer_fbo->depth_texture, 2);
+
+	for (LightEntity* light : light_list) {
+		if (light->light_type == DIRECTIONAL) continue;
+
+		vec3 pos = light->root.getGlobalMatrix().getTranslation();
+		Matrix44 model;
+		model.setTranslation(pos.x, pos.y, pos.z);
+		model.scale(light->max_distance, light->max_distance, light->max_distance);
+
+		shader->setUniform("u_model", model);
+		shader->setUniform("u_light_pos", pos);
+		shader->setUniform("u_light_color", light->color);
+		shader->setUniform("u_light_intensity", light->intensity);
+		shader->setUniform("u_light_type", (int)light->light_type);
+		shader->setUniform("u_light_dir", light->root.model.frontVector());
+		shader->setUniform("u_light_cone", light->cone_info);
+
+		sphere.render(GL_TRIANGLES);
+	}
+
+	shader->disable();
+	lighting_fbo->unbind();
+
+	// Reset OpenGL
+	glDepthFunc(GL_LESS);
+	glDepthMask(GL_TRUE);
+	glDisable(GL_BLEND);
+	glFrontFace(GL_CCW);
+}
+
 
 #ifndef SKIP_IMGUI
 
@@ -685,7 +752,6 @@ void Renderer::showUI()
 	ImGui::Checkbox("Multipass Rendering", &use_multipass);
 	ImGui::SliderFloat("Shadow Bias", &shadow_bias, 0.0f, 0.01f);
 	ImGui::Checkbox("Front Face Culling", &front_face_culling);
-
 	ImGui::Checkbox("Deferred Rendering", &use_deferred);
 
 	// Solo usamos use_deferred

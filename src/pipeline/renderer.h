@@ -28,6 +28,7 @@ namespace SCN {
 
 		GFX::Texture* shadow_map = nullptr;
 		GFX::FBO* shadow_fbo = nullptr;
+		GFX::FBO* lighting_fbo = nullptr;
 
 		GFX::FBO* gbuffer_fbo = nullptr;
 		bool use_deferred = true;
@@ -69,6 +70,8 @@ namespace SCN {
 		void renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
 		void renderToGBuffer();
 		void renderDeferredSinglePass(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
+		void renderLightVolumes();
+
 
 		void showUI();
 	};

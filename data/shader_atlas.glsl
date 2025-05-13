@@ -10,6 +10,7 @@ plain basic.vs plain.fs
 compute test.cs
 gbuffer_fill basic.vs gbuffer_fill.fs
 phong_deferred quad.vs deferred_single.fs
+light_volume basic.vs light_volume.fs
 
 \test.cs
 #version 430 core
@@ -745,4 +746,73 @@ void main()
     }
 
     FragColor = vec4(final_color, 1.0);
+}
+
+\light_volume.fs
+#version 330 core
+
+in vec2 v_uv;
+
+out vec4 FragColor;
+
+uniform sampler2D u_gbuffer_color;
+uniform sampler2D u_gbuffer_normal;
+uniform sampler2D u_gbuffer_depth;
+
+uniform vec3 u_light_pos;
+uniform vec3 u_light_color;
+uniform float u_light_intensity;
+uniform int u_light_type;
+uniform vec3 u_light_dir;
+uniform vec2 u_light_cone;
+uniform vec3 u_camera_position;
+uniform vec3 u_ambient_light;
+
+uniform mat4 u_inverse_viewprojection;
+uniform vec2 u_inv_screen_size;
+
+const float shininess = 32.0;
+
+void main()
+{
+    vec2 uv = gl_FragCoord.xy * u_inv_screen_size;
+
+    // Recuperar la profunditat i reconstruir world pos
+    float depth = texture(u_gbuffer_depth, uv).r;
+    float depth_clip = depth * 2.0 - 1.0;
+    vec2 uv_clip = uv * 2.0 - 1.0;
+    vec4 clip_coords = vec4(uv_clip, depth_clip, 1.0);
+    vec4 world_pos_h = u_inverse_viewprojection * clip_coords;
+    vec3 world_pos = world_pos_h.xyz / world_pos_h.w;
+
+    // Recuperar color i normal
+    vec3 color = texture(u_gbuffer_color, uv).rgb;
+    vec3 normal = normalize(texture(u_gbuffer_normal, uv).xyz * 2.0 - 1.0);
+
+    // Vector cap a la llum i cap a la càmera
+    vec3 to_light = u_light_pos - world_pos;
+    float dist = length(to_light);
+    vec3 L = normalize(to_light);
+    vec3 V = normalize(u_camera_position - world_pos);
+    vec3 R = reflect(-L, normal);
+
+    // Atenuació per distància
+    float attenuation = clamp(1.0 - dist / u_light_cone.x, 0.0, 1.0);
+
+    // Spotlight cutoff
+    if (u_light_type == 2) {
+        float cos_angle = dot(-L, normalize(u_light_dir));
+        float cutoff = cos(u_light_cone.y);
+        if (cos_angle < cutoff) discard;
+    }
+
+    // Phong shading
+    float NdotL = max(dot(normal, L), 0.0);
+    float RdotV = max(dot(R, V), 0.0);
+    vec3 diffuse = color * u_light_color * NdotL;
+    vec3 specular = u_light_color * pow(RdotV, shininess);
+
+    vec3 result = (diffuse + specular) * u_light_intensity * attenuation;
+
+    FragColor = vec4(result, 1.0);
 }
