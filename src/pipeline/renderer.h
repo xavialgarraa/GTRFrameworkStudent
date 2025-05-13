@@ -70,13 +70,9 @@ namespace SCN {
 		//to render one mesh given its material and transformation matrix
 		void renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
 		void renderToGBuffer();
-		void renderDeferredSinglePass(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
-<<<<<<< Updated upstream
-		void renderLightVolumes();
-=======
-		void renderLightVolumes(Camera* camera);
->>>>>>> Stashed changes
+		void renderDeferredSinglePass();
 
+		void renderLightVolumes(Camera* camera);
 
 		void showUI();
 	};

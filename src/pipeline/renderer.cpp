@@ -179,8 +179,6 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	glClearColor(0, 0, 0, 1);
 	glClear(GL_COLOR_BUFFER_BIT);
 
-	renderLightVolumes();
-
 	lighting_fbo->unbind();
 
 
@@ -209,32 +207,40 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		}
 	}
 
-	// Sort opaque commands front-to-back
-	std::sort(opaque_commands.begin(), opaque_commands.end(), [](const sDrawCommand& a, const sDrawCommand& b) {
-		return a.distance_to_camera < b.distance_to_camera;
-		});
-
-	// Sort transparent commands back-to-front
-	std::sort(transparent_commands.begin(), transparent_commands.end(), [](const sDrawCommand& a, const sDrawCommand& b) {
-		return a.distance_to_camera > b.distance_to_camera;
-		});
-
-	// Render opaque objects first
-	for (const sDrawCommand& command : opaque_commands) {
-		renderMeshWithMaterial(command.model, command.mesh, command.material);
+	if (use_deferred)
+	{
+		renderDeferredSinglePass();
 	}
+	else {
+		// Sort opaque commands front-to-back
+		std::sort(opaque_commands.begin(), opaque_commands.end(), [](const sDrawCommand& a, const sDrawCommand& b) {
+			return a.distance_to_camera < b.distance_to_camera;
+			});
 
-	// Enable blending for transparent objects
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		// Sort transparent commands back-to-front
+		std::sort(transparent_commands.begin(), transparent_commands.end(), [](const sDrawCommand& a, const sDrawCommand& b) {
+			return a.distance_to_camera > b.distance_to_camera;
+			});
 
-	// Render transparent objects last
-	for (const sDrawCommand& command : transparent_commands) {
-		renderMeshWithMaterial(command.model, command.mesh, command.material);
+		// Render opaque objects first
+		for (const sDrawCommand& command : opaque_commands) {
+			renderMeshWithMaterial(command.model, command.mesh, command.material);
+		}
+
+		// Enable blending for transparent objects
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+		// Render transparent objects last
+		for (const sDrawCommand& command : transparent_commands) {
+			renderMeshWithMaterial(command.model, command.mesh, command.material);
+		}
+
+		// Disable blending for next frame
+		glDisable(GL_BLEND);
 	}
-
-	// Disable blending for next frame
-	glDisable(GL_BLEND);
+	
+	
 }
 
 void Renderer::renderSkybox(GFX::Texture* cubemap)
@@ -359,11 +365,7 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 		glPolygonMode(GL_FRONT_AND_BACK, render_wireframe ? GL_LINE : GL_FILL);
 	}
 	else {
-		if (use_deferred)
-		{
-			renderDeferredSinglePass(model, mesh, material);
-		}
-		else {
+		
 			// Single Pass:
 		//chose a shader based on material properties
 			GFX::Shader* shader = NULL;
@@ -393,6 +395,7 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 			Matrix44* shadow_mat = new Matrix44[light_list.size()];
 
 			int i = 0;
+
 			for (LightEntity* light : light_list) {
 				light_pos[i] = light->root.getGlobalMatrix().getTranslation();
 				light_int[i] = light->intensity;
@@ -459,7 +462,7 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 			//set the render state as it was before to avoid problems with future renders
 			glDisable(GL_BLEND);
 			glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-		}
+		
 	}
 
 }
@@ -586,7 +589,7 @@ void Renderer::renderToGBuffer()
 	gbuffer_fbo->unbind();
 }
 
-void Renderer::renderDeferredSinglePass(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material)
+void Renderer::renderDeferredSinglePass()
 {
 	Camera* camera = Camera::current;
 	int texture_slots = 0;
@@ -605,12 +608,6 @@ void Renderer::renderDeferredSinglePass(const Matrix44 model, GFX::Mesh* mesh, S
 		return;
 
 	shader->enable();
-
-	material->bind(shader);
-	
-	//shader->setUniform("u_shininess", 1.0f - material->roughness_factor);
-
-	shader->setUniform("u_shininess", material->shininess); // Convert roughness to shininess
 
 	//send lights
 	vec3* light_pos = new vec3[light_list.size()];
@@ -665,7 +662,6 @@ void Renderer::renderDeferredSinglePass(const Matrix44 model, GFX::Mesh* mesh, S
 
 
 	//upload uniforms
-	shader->setUniform("u_model", model);
 	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 	shader->setUniform("u_camera_position", camera->eye);
 
@@ -692,64 +688,6 @@ void Renderer::renderDeferredSinglePass(const Matrix44 model, GFX::Mesh* mesh, S
 	shader->disable();
 }
 
-<<<<<<< Updated upstream
-void Renderer::renderLightVolumes() {
-	Camera* camera = Camera::current;
-	GFX::Shader* shader = GFX::Shader::Get("light_volume");
-	if (!shader) return;
-
-	lighting_fbo->bind();
-
-	// Configuració OpenGL
-	glDepthFunc(GL_GREATER);
-	glDepthMask(GL_FALSE);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_ONE, GL_ONE);
-	glFrontFace(GL_CW);
-
-	shader->enable();
-
-	// Uniformes globals
-	Matrix44 inv_vp = camera->viewprojection_matrix;
-	inv_vp.inverse();
-	shader->setUniform("u_inverse_viewprojection", inv_vp);
-	shader->setUniform("u_inv_screen_size", Vector2f(1.0f / lighting_fbo->width, 1.0f / lighting_fbo->height));
-
-	// G-Buffer Textures
-	shader->setTexture("u_gbuffer_color", gbuffer_fbo->color_textures[0], 0);
-	shader->setTexture("u_gbuffer_normal", gbuffer_fbo->color_textures[1], 1);
-	shader->setTexture("u_gbuffer_depth", gbuffer_fbo->depth_texture, 2);
-
-	for (LightEntity* light : light_list) {
-		if (light->light_type == DIRECTIONAL) continue;
-
-		vec3 pos = light->root.getGlobalMatrix().getTranslation();
-		Matrix44 model;
-		model.setTranslation(pos.x, pos.y, pos.z);
-		model.scale(light->max_distance, light->max_distance, light->max_distance);
-
-		shader->setUniform("u_model", model);
-		shader->setUniform("u_light_pos", pos);
-		shader->setUniform("u_light_color", light->color);
-		shader->setUniform("u_light_intensity", light->intensity);
-		shader->setUniform("u_light_type", (int)light->light_type);
-		shader->setUniform("u_light_dir", light->root.model.frontVector());
-		shader->setUniform("u_light_cone", light->cone_info);
-
-		sphere.render(GL_TRIANGLES);
-	}
-
-	shader->disable();
-	lighting_fbo->unbind();
-
-	// Reset OpenGL
-	glDepthFunc(GL_LESS);
-	glDepthMask(GL_TRUE);
-	glDisable(GL_BLEND);
-	glFrontFace(GL_CCW);
-}
-
-=======
 void Renderer::renderLightVolumes(Camera* camera)
 {
 	if (!light_list.empty())
@@ -816,8 +754,6 @@ void Renderer::renderLightVolumes(Camera* camera)
 	}
 }
 
-
->>>>>>> Stashed changes
 
 #ifndef SKIP_IMGUI
 
