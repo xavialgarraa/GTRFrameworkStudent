@@ -581,33 +581,32 @@ void main()
 \gbuffer_fill.fs
 #version 330 core
 
-in vec3 v_normal;
 in vec2 v_uv;
-in vec3 v_world_position;
 
-layout(location = 0) out vec4 gbuffer_albedo;
-layout(location = 1) out vec4 gbuffer_normal;
+uniform sampler2D u_texture;              // albedo
+uniform sampler2D u_normal_texture;       // normal map
+uniform sampler2D u_metallic_roughness;   // MER texture (R = AO, G = Roughness, B = Metalness)
 
-uniform sampler2D u_color_texture;
 uniform vec4 u_color;
-uniform float u_alpha_cutoff;
 
-void main()
-{
-    vec4 tex_color = texture(u_color_texture, v_uv);
-    vec3 final_color = tex_color.rgb * u_color.rgb;
+layout(location = 0) out vec4 gColor;   // RGB = Albedo, A = Roughness
+layout(location = 1) out vec4 gNormal;  // RGB = Normal, A = Metalness
 
-    // Opcional: alpha masking per a objectes amb textures transparents
-    float alpha = tex_color.a * u_color.a;
-    if(alpha < u_alpha_cutoff)
-        discard;
+void main() {
+    // Albedo
+    vec4 albedo = texture(u_texture, v_uv) * u_color;
 
-    // Output cap al G-Buffer
-    gbuffer_albedo = vec4(final_color, 1.0);
+    // Normal (convert from tangent space normal map to world, optional)
+    vec3 normal = texture(u_normal_texture, v_uv).rgb;
+    normal = normalize(normal * 2.0 - 1.0); // Decompress normal
 
-    // Encode normal a [0,1] per emmagatzemar-la com a textura
-    vec3 encoded_normal = normalize(v_normal) * 0.5 + 0.5;
-    gbuffer_normal = vec4(encoded_normal, 1.0);
+    // MER values
+    vec3 mer = texture(u_metallic_roughness, v_uv).rgb;
+    float roughness = mer.g;
+    float metalness = mer.b;
+
+    gColor = vec4(albedo.rgb, roughness);
+    gNormal = vec4(normal, metalness);
 }
 
 
