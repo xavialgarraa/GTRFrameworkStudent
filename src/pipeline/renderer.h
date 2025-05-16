@@ -26,6 +26,7 @@ namespace SCN {
 	public:
 		bool render_wireframe;
 		bool render_boundaries;
+		bool light_volume = false;
 
 		GFX::Texture* shadow_map = nullptr;
 		GFX::FBO* shadow_fbo = nullptr;
@@ -71,6 +72,18 @@ namespace SCN {
 		void renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
 		void renderToGBuffer();
 		void renderDeferredSinglePass();
+		void renderDirectionalLights();
+
+		void copyDepthBuffer(GFX::FBO* source, GFX::FBO* dest);
+
+
+		void restoreDefaultRenderState();
+
+		void setLightVolumeRenderState();
+
+		void renderDeferredAmbientPass();
+
+
 
 		void renderLightVolumes(Camera* camera);
 

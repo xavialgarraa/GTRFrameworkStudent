@@ -10,7 +10,8 @@ plain basic.vs plain.fs
 compute test.cs
 gbuffer_fill basic.vs gbuffer_fill.fs
 phong_deferred quad.vs deferred_single.fs
-light_volume basic.vs light_volume.fs
+light_volume light_volume.vs light_volume.fs
+deferred_ambient quad.vs deferred_ambient.fs
 
 \test.cs
 #version 430 core
@@ -753,25 +754,54 @@ void main()
     FragColor = vec4(final_color, 1.0);
 }
 
+\light_volume.vs
+#version 330 core
+
+in vec3 a_vertex;       // Posición del vértice (esfera unitaria)
+in vec3 a_normal;       // Normal (no siempre necesaria para light volumes)
+
+uniform mat4 u_model;           // Transformación de la luz (posición + escala)
+uniform mat4 u_viewprojection;  // View + Projection
+uniform vec3 u_camera_pos;      // Posición de cámara (para efectos opcionales)
+
+out vec3 v_world_position;      // Posición en mundo del vértice
+out vec3 v_normal;              // Normal (opcional, para efectos avanzados)
+
+void main()
+{
+    // Transformar vértice a mundo (la esfera se escala según el radio de influencia de la luz)
+    v_world_position = (u_model * vec4(a_vertex, 1.0)).xyz;
+    
+    // Pasar la normal (útil si quieres hacer efectos como "rim lighting" en el volumen)
+    v_normal = normalize((u_model * vec4(a_normal, 0.0)).xyz);
+    
+    // Posición en clip space
+    gl_Position = u_viewprojection * vec4(v_world_position, 1.0);
+}
+
+
 \light_volume.fs
-// Fragment Shader
+varying vec3 v_position;
 varying vec3 v_world_position;
+varying vec3 v_normal;
+varying vec2 v_uv;
 
-uniform sampler2D u_gbuffer_albedo;
-uniform sampler2D u_gbuffer_normals;
-uniform sampler2D u_gbuffer_depth;
-
-uniform mat4 u_inverse_viewprojection;
-uniform vec2 u_iResolution;
 uniform vec3 u_camera_position;
+uniform mat4 u_inverse_viewprojection;
+uniform vec2 u_res_inv;
 
 uniform vec3 u_light_pos;
 uniform vec3 u_light_color;
+uniform float u_light_intensity;
 uniform int u_light_type;
 uniform vec3 u_light_dir;
 uniform vec2 u_light_cone;
 
-vec3 getWorldPosition(vec2 uv, float depth)
+uniform sampler2D u_gbuffer_color;
+uniform sampler2D u_gbuffer_normal;
+uniform sampler2D u_gbuffer_depth;
+
+vec3 getPosition(vec2 uv, float depth)
 {
     vec4 pos = u_inverse_viewprojection * vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     return pos.xyz / pos.w;
@@ -779,35 +809,89 @@ vec3 getWorldPosition(vec2 uv, float depth)
 
 void main()
 {
-    vec2 uv = gl_FragCoord.xy * u_iResolution;
+    vec2 uv = gl_FragCoord.xy * u_res_inv;
+    
+    // Reconstruct position from depth
     float depth = texture2D(u_gbuffer_depth, uv).x;
+    vec3 pos = getPosition(uv, depth);
     
-    // Early exit if no geometry
-    if (depth == 1.0) discard;
+    // Sample GBuffer
+    vec4 color = texture2D(u_gbuffer_color, uv);
+    vec3 normal = normalize(texture2D(u_gbuffer_normal, uv).xyz * 2.0 - 1.0);
     
-    vec3 world_pos = getWorldPosition(uv, depth);
-    vec3 albedo = texture2D(u_gbuffer_albedo, uv).rgb;
-    vec3 normal = texture2D(u_gbuffer_normals, uv).xyz * 2.0 - 1.0;
+    // Light vector calculation
+    vec3 light_vec = u_light_pos - pos;
+    float dist = length(light_vec);
+    light_vec = normalize(light_vec);
     
-    // Vector luz -> superficie
-    vec3 L = u_light_pos - world_pos;
-    float dist = length(L);
-    L = normalize(L);
+    // Attenuation - improved formula
+    float att = u_light_intensity / (1.0 + 0.1*dist + 0.01*dist*dist);
     
-    // Atenuación
-    float att = 1.0 / (1.0 + dist * dist);
-    
-    // Spot light factor
+    // Handle different light types
     if (u_light_type == 2) // SPOT
     {
-        float cos_angle = dot(-L, u_light_dir);
+        float cos_angle = dot(-light_vec, normalize(u_light_dir));
         float spot = smoothstep(u_light_cone.y, u_light_cone.x, cos_angle);
         att *= spot;
     }
     
     // Diffuse
-    float NdotL = max(0.0, dot(normal, L));
-    vec3 diffuse = albedo * NdotL * att * u_light_color;
+    float NdotL = max(0.0, dot(normal, light_vec));
+    vec3 diffuse = color.rgb * NdotL * att * u_light_color;
     
-    gl_FragColor = vec4(diffuse, 1.0);
+    // Specular
+    vec3 view_dir = normalize(u_camera_position - pos);
+    vec3 reflect_dir = reflect(-light_vec, normal);
+    float spec = pow(max(dot(view_dir, reflect_dir), 0.0), 32.0);
+    vec3 specular = spec * att * u_light_color;
+    
+    gl_FragColor = vec4(diffuse + specular, 1.0);
+}
+
+\deferred_ambient.fs
+#version 330 core
+
+in vec2 uv;
+
+// G-Buffer textures
+uniform sampler2D u_gbuffer_color;
+uniform sampler2D u_gbuffer_normal;
+uniform sampler2D u_gbuffer_depth;
+
+// Camera info
+uniform mat4 u_inverse_viewprojection;
+uniform vec3 u_camera_position;
+
+// Ambient light
+uniform vec3 u_ambient_light;
+
+uniform vec2 u_res_inv;
+
+out vec4 FragColor;
+
+vec3 reconstructPosition(vec2 uv, float depth) {
+    float z = depth * 2.0 - 1.0;
+    vec2 uv_clip = uv * 2.0 - 1.0;
+    vec4 clip_coords = vec4(uv_clip.x, uv_clip.y, z, 1.0);
+    vec4 world_pos = u_inverse_viewprojection * clip_coords;
+    return world_pos.xyz / world_pos.w;
+}
+
+void main()
+{
+    vec2 uv = gl_FragCoord.xy * u_res_inv;
+
+    // Read G-Buffer data
+    vec4 albedo_spec = texture(u_gbuffer_color, uv);
+    vec3 K = albedo_spec.rgb;
+    float depth = texture(u_gbuffer_depth, uv).r;
+
+    if (depth >= 1.0) {
+        discard;
+    }
+
+    // Calculate ambient lighting only
+    vec3 final_color = K * u_ambient_light;
+    
+    FragColor = vec4(final_color, 1.0);
 }

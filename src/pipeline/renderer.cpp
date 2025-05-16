@@ -171,17 +171,6 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	GFX::checkGLErrors();
 
 	renderToGBuffer();
-
-	gbuffer_fbo->depth_texture->copyTo(lighting_fbo->depth_texture);
-
-	lighting_fbo->bind();
-
-	glClearColor(0, 0, 0, 1);
-	glClear(GL_COLOR_BUFFER_BIT);
-
-	lighting_fbo->unbind();
-
-
 	gbuffer_fbo->color_textures[0]->toViewport();
 
 	//render skybox
@@ -190,28 +179,65 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 	if (use_deferred)
 	{
-		renderLightVolumes(camera);
+		if (light_volume)
+		{
+			
+			copyDepthBuffer(gbuffer_fbo, lighting_fbo);
 
-	}
+			lighting_fbo->bind();
+			glClear(GL_COLOR_BUFFER_BIT);
 
-	// Separate opaque and transparent objects
-	std::vector<sDrawCommand> opaque_commands;
-	std::vector<sDrawCommand> transparent_commands;
+			glDisable(GL_BLEND);
+			glDepthMask(GL_FALSE); 
+			glDepthFunc(GL_LEQUAL);
 
-	for (const sDrawCommand& command : draw_command_list) {
-		if (command.material && command.material->alpha_mode == SCN::eAlphaMode::BLEND) {
-			transparent_commands.push_back(command);
+			//render skybox
+			if (skybox_cubemap)
+				renderSkybox(skybox_cubemap);
+
+			renderDeferredAmbientPass();
+			renderDirectionalLights();
+
+
+			renderLightVolumes(camera);
+
+
+			// 8. Unbind lighting FBO
+			lighting_fbo->unbind();
+
+			// 9. Mostrar resultado final
+			lighting_fbo->color_textures[0]->toViewport();
+			
 		}
 		else {
-			opaque_commands.push_back(command);
+			//2.2
+			renderDeferredSinglePass();
 		}
-	}
 
-	if (use_deferred)
-	{
-		renderDeferredSinglePass();
+		// Enable blending for transparent objects
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+		//transparent objects
+		
+
+		// Disable blending for next frame
+		glDisable(GL_BLEND);
 	}
 	else {
+		// Separate opaque and transparent objects
+		std::vector<sDrawCommand> opaque_commands;
+		std::vector<sDrawCommand> transparent_commands;
+
+		for (const sDrawCommand& command : draw_command_list) {
+			if (command.material && command.material->alpha_mode == SCN::eAlphaMode::BLEND) {
+				transparent_commands.push_back(command);
+			}
+			else {
+				opaque_commands.push_back(command);
+			}
+		}
+
 		// Sort opaque commands front-to-back
 		std::sort(opaque_commands.begin(), opaque_commands.end(), [](const sDrawCommand& a, const sDrawCommand& b) {
 			return a.distance_to_camera < b.distance_to_camera;
@@ -238,10 +264,11 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 		// Disable blending for next frame
 		glDisable(GL_BLEND);
+
 	}
 	
-	
 }
+
 
 void Renderer::renderSkybox(GFX::Texture* cubemap)
 {
@@ -556,7 +583,6 @@ void Renderer::renderShadowMap(SCN::Scene* scene)
 void Renderer::renderToGBuffer()
 {
 	// Bind G-Buffer FBO
-	
 	gbuffer_fbo->bind();
 
 	// Clear all buffers
@@ -688,6 +714,109 @@ void Renderer::renderDeferredSinglePass()
 	shader->disable();
 }
 
+void Renderer::renderDirectionalLights()
+{
+	Camera* camera = Camera::current;
+	int texture_slots = 0;
+
+	// A quad is usually a mesh of a plane,
+	// always aligned with you view
+	GFX::Mesh* quad = GFX::Mesh::getQuad();
+
+	GFX::Shader* shader = NULL;
+	shader = GFX::Shader::Get("phong_deferred");
+
+	assert(glGetError() == GL_NO_ERROR);
+
+	//no shader? then nothing to render
+	if (!shader)
+		return;
+
+	shader->enable();
+
+	//send lights
+	vec3* light_pos = new vec3[light_list.size()];
+	vec3* light_color = new vec3[light_list.size()];
+	float* light_int = new float[light_list.size()];
+	vec3* light_dir = new vec3[light_list.size()];
+	int* light_type = new int[light_list.size()];
+	vec2* cone_info = new vec2[light_list.size()];
+	Matrix44* shadow_mat = new Matrix44[light_list.size()];
+
+	int i = 0;
+	for (LightEntity* light : light_list) {
+		if (light->light_type == 3)
+		{
+			light_pos[i] = light->root.getGlobalMatrix().getTranslation();
+			light_int[i] = light->intensity;
+			light_color[i] = light->color;
+			light_dir[i] = light->root.model.frontVector();
+			light_type[i] = light->light_type;
+			cone_info[i] = light->cone_info;
+			shadow_mat[i] = light->view_projection;
+		}
+		
+		i++;
+	}
+
+	shader->setUniform("u_numShadows", (int)min(light_list.size(), 10));
+	shader->setUniform("u_bias", shadow_bias);
+	shader->setUniform("u_light_count", (int)min(light_list.size(), 10));
+	shader->setUniform3Array("u_light_pos", (float*)light_pos, min(light_list.size(), 10));
+	shader->setUniform3Array("u_light_color", (float*)light_color, min(light_list.size(), 10));
+	shader->setUniform1Array("u_light_intensity", light_int, min(light_list.size(), 10));
+	shader->setUniform1Array("u_light_type", (int*)light_type, min(light_list.size(), 10));
+	shader->setUniform3Array("u_light_dir", (float*)light_dir, min(light_list.size(), 10));
+	shader->setUniform2Array("u_light_cone", (float*)cone_info, min(light_list.size(), 10));
+	shader->setUniform("u_ambient_light", scene->ambient_light);
+
+	// We uploaded all the shadow maps manual
+	shader->setUniform("u_shadow_map_0", (shadow_fbos[0]->depth_texture), texture_slots++); //SPOT
+	//shader->setUniform("u_shadow_map_1", (shadow_fbos[1]->depth_texture), 3);
+	//shader->setUniform("u_shadow_map_2", (shadow_fbos[2]->depth_texture), 4);
+	shader->setUniform("u_shadow_map_3", (shadow_fbos[3]->depth_texture), texture_slots++); //DIRECTIONAL
+
+	shader->setUniform("u_shadow_matrix_0", shadow_mat[0]); //SPOT
+	//shader->setUniform("u_shadow_matrix_1", shadow_mat[1]);
+	//shader->setUniform("u_shadow_matrix_2", shadow_mat[2]);
+	shader->setUniform("u_shadow_matrix_3", shadow_mat[3]); //DIRECTIONAL
+
+	delete[] light_pos;
+	delete[] light_color;
+	delete[] light_int;
+	delete[] light_dir;
+	delete[] cone_info;
+	delete[] light_type;
+	delete[] shadow_mat;
+
+
+	//upload uniforms
+	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+	shader->setUniform("u_camera_position", camera->eye);
+
+
+
+	// Upload time, for cool shader effects
+	float t = getTime();
+	shader->setUniform("u_time", t);
+
+	// Bind the GBuffers
+	shader->setTexture("u_gbuffer_color", gbuffer_fbo->color_textures[0], texture_slots++);
+	shader->setTexture("u_gbuffer_normal", gbuffer_fbo->color_textures[1], texture_slots++);
+	shader->setTexture("u_gbuffer_depth", gbuffer_fbo->depth_texture, texture_slots++);
+
+	Matrix44 inv_vp = Camera::current->viewprojection_matrix;
+	inv_vp.inverse();
+	shader->setUniform("u_inverse_viewprojection", inv_vp);
+	shader->setUniform("u_res_inv", Vector2f(1.0f / gbuffer_fbo->width, 1.0f / gbuffer_fbo->height));
+
+	if (render_wireframe) glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+	quad->render(GL_TRIANGLES);
+
+	shader->disable();
+}
+
 void Renderer::renderLightVolumes(Camera* camera)
 {
 	if (!light_list.empty())
@@ -710,18 +839,12 @@ void Renderer::renderLightVolumes(Camera* camera)
 		light_volume_shader->setUniform("u_inverse_viewprojection", inv_view_projection_matrix);
 		light_volume_shader->setUniform("u_res_inv", vec2(1.0f / gbuffer_fbo->width, 1.0f / gbuffer_fbo->height));
 
-		// Enable additive blending
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_ONE, GL_ONE);
-		glDepthMask(GL_FALSE);
+		setLightVolumeRenderState();
 
-		// Disable backface culling since we're inside the sphere
-		glDisable(GL_CULL_FACE);
 
 		// Render each light volume
 		for (LightEntity* light : light_list)
 		{
-			// Skip directional lights as they affect the whole scene
 			if (light->light_type == eLightType::DIRECTIONAL)
 				continue;
 
@@ -731,7 +854,7 @@ void Renderer::renderLightVolumes(Camera* camera)
 			model.scale(light->max_distance, light->max_distance, light->max_distance);
 
 			light_volume_shader->setUniform("u_model", model);
-			light_volume_shader->setUniform("u_light_pos", model.getTranslation());
+			light_volume_shader->setUniform("u_light_pos", translation); // Usar posición directa
 			light_volume_shader->setUniform("u_light_color", light->color);
 			light_volume_shader->setUniform("u_light_intensity", light->intensity);
 			light_volume_shader->setUniform("u_light_type", (int)light->light_type);
@@ -739,21 +862,78 @@ void Renderer::renderLightVolumes(Camera* camera)
 			if (light->light_type == eLightType::SPOT)
 			{
 				light_volume_shader->setUniform("u_light_dir", light->root.model.frontVector());
-				light_volume_shader->setUniform("u_light_cone", light->cone_info);
+				light_volume_shader->setUniform("u_light_cone", vec2(cos(light->cone_info.x), cos(light->cone_info.y)));
 			}
 
-			// Render the sphere
 			sphere.render(GL_TRIANGLES);
 		}
 
 		// Restore state
-		glDisable(GL_BLEND);
-		glDepthMask(GL_TRUE);
-		glEnable(GL_CULL_FACE);
+		restoreDefaultRenderState();
+
 		light_volume_shader->disable();
 	}
 }
 
+void Renderer::renderDeferredAmbientPass() {
+	GFX::Mesh* quad2 = GFX::Mesh::getQuad();
+
+	GFX::Shader* ambient_shader = GFX::Shader::Get("deferred_ambient");
+	if (!ambient_shader) return;
+
+	ambient_shader->enable();
+
+	// Bind GBuffer textures
+	ambient_shader->setTexture("u_gbuffer_color", gbuffer_fbo->color_textures[0], 0);
+	ambient_shader->setTexture("u_gbuffer_normal", gbuffer_fbo->color_textures[1], 1);
+	ambient_shader->setTexture("u_gbuffer_depth", gbuffer_fbo->depth_texture, 2);
+
+	// Set uniforms
+	ambient_shader->setUniform("u_ambient_light", scene->ambient_light);
+	ambient_shader->setUniform("u_viewprojection", Camera::current->viewprojection_matrix);
+	ambient_shader->setUniform("u_camera_position", Camera::current->eye);
+
+	Matrix44 inv_vp = Camera::current->viewprojection_matrix;
+	inv_vp.inverse();
+	ambient_shader->setUniform("u_inverse_viewprojection", inv_vp);
+	ambient_shader->setUniform("u_res_inv", vec2(1.0f / gbuffer_fbo->width, 1.0f / gbuffer_fbo->height));
+
+
+	// Render fullscreen quad
+	quad2->render(GL_TRIANGLES);
+
+	ambient_shader->disable();
+
+}
+
+void Renderer::copyDepthBuffer(GFX::FBO* source, GFX::FBO* dest) {
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, source->fbo_id);
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dest->fbo_id);
+	glBlitFramebuffer(0, 0, source->width, source->height,
+		0, 0, dest->width, dest->height,
+		GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+void Renderer::setLightVolumeRenderState() {
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_ONE, GL_ONE); // Blending aditivo
+	glDepthFunc(GL_GREATER); // Solo renderizar detrás de la geometría
+	glDepthMask(GL_FALSE); // No escribir en depth buffer
+	glCullFace(GL_FRONT); // Renderizar solo back faces (GL_CW)
+}
+void Renderer::restoreDefaultRenderState() {
+	glDisable(GL_BLEND);
+	glBlendFunc(GL_ONE, GL_ZERO); 
+
+	glDepthFunc(GL_LESS); 
+	glDepthMask(GL_TRUE);
+
+	glCullFace(GL_BACK); 
+	glFrontFace(GL_CCW); 
+
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+}
 
 #ifndef SKIP_IMGUI
 
@@ -765,12 +945,19 @@ void Renderer::showUI()
 	ImGui::SliderFloat("Shadow Bias", &shadow_bias, 0.0f, 0.01f);
 	ImGui::Checkbox("Front Face Culling", &front_face_culling);
 	ImGui::Checkbox("Deferred Rendering", &use_deferred);
+	ImGui::Checkbox("Deferred - Light Volume", &light_volume);
+
 
 	// Solo usamos use_deferred
-	if (use_deferred && use_multipass)
+	if ((use_deferred || light_volume) && use_multipass)
 	{
 		use_multipass = false;
 	}
+	if (light_volume)
+	{
+		use_deferred = true;
+	}
+	
 }
 
 #else
