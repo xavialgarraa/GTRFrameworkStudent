@@ -11,6 +11,68 @@ compute test.cs
 gbuffer_fill basic.vs gbuffer_fill.fs
 phong_deferred quad.vs deferred_single.fs
 light_volume basic.vs light_volume.fs
+phong_singlepass basic.vs phong_singlepass.fs
+
+#name PBR_functions
+vec3 fresnelSchlick(float cosTheta, vec3 F0)
+{
+    return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+}
+
+float DistributionGGX(vec3 N, vec3 H, float roughness)
+{
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float NdotH = max(dot(N, H), 0.0);
+    float NdotH2 = NdotH * NdotH;
+
+    float num = a2;
+    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
+    denom = 3.14159265 * denom * denom;
+
+    return num / denom;
+}
+
+float GeometrySchlickGGX(float NdotV, float roughness)
+{
+    float r = roughness + 1.0;
+    float k = (r * r) / 8.0;
+
+    return NdotV / (NdotV * (1.0 - k) + k);
+}
+
+float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
+{
+    float NdotV = max(dot(N, V), 0.0);
+    float NdotL = max(dot(N, L), 0.0);
+    return GeometrySchlickGGX(NdotV, roughness) * GeometrySchlickGGX(NdotL, roughness);
+}
+
+vec3 cookTorranceBRDF(vec3 N, vec3 V, vec3 L, vec3 albedo, float roughness, float metalness)
+{
+    vec3 H = normalize(V + L);
+
+    float NdotL = max(dot(N, L), 0.0);
+    float NdotV = max(dot(N, V), 0.0);
+    float VdotH = max(dot(V, H), 0.0);
+
+    vec3 F0 = mix(vec3(0.04), albedo, metalness);
+    vec3 F = fresnelSchlick(VdotH, F0);
+    float D = DistributionGGX(N, H, roughness);
+    float G = GeometrySmith(N, V, L, roughness);
+
+    vec3 numerator = D * F * G;
+    float denominator = max(4.0 * NdotV * NdotL, 0.001);
+    vec3 specular = numerator / denominator;
+
+    vec3 kS = F;
+    vec3 kD = vec3(1.0) - kS;
+    kD *= 1.0 - metalness;
+
+    vec3 diffuse = albedo / 3.14159265;
+
+    return (kD * diffuse + specular) * NdotL;
+}
 
 \test.cs
 #version 430 core
@@ -602,8 +664,6 @@ void main() {
     gbuffer2 = vec4(normal, metalness);
 }
 
-
-
 \deferred_single.fs
 #version 330 core
 
@@ -645,69 +705,7 @@ uniform mat4 u_shadow_matrix_3;
 
 out vec4 FragColor;
 
-// === Cook-Torrance PBR Functions ===
-
-vec3 fresnelSchlick(float cosTheta, vec3 F0)
-{
-    return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
-}
-
-float DistributionGGX(vec3 N, vec3 H, float roughness)
-{
-    float a = roughness * roughness;
-    float a2 = a * a;
-    float NdotH = max(dot(N, H), 0.0);
-    float NdotH2 = NdotH * NdotH;
-
-    float num = a2;
-    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
-    denom = 3.14159265 * denom * denom;
-
-    return num / denom;
-}
-
-float GeometrySchlickGGX(float NdotV, float roughness)
-{
-    float r = roughness + 1.0;
-    float k = (r * r) / 8.0;
-
-    return NdotV / (NdotV * (1.0 - k) + k);
-}
-
-float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
-{
-    float NdotV = max(dot(N, V), 0.0);
-    float NdotL = max(dot(N, L), 0.0);
-    return GeometrySchlickGGX(NdotV, roughness) * GeometrySchlickGGX(NdotL, roughness);
-}
-
-vec3 cookTorranceBRDF(vec3 N, vec3 V, vec3 L, vec3 albedo, float roughness, float metalness)
-{
-    vec3 H = normalize(V + L);
-
-    float NdotL = max(dot(N, L), 0.0);
-    float NdotV = max(dot(N, V), 0.0);
-    float VdotH = max(dot(V, H), 0.0);
-
-    vec3 F0 = mix(vec3(0.04), albedo, metalness);
-    vec3 F = fresnelSchlick(VdotH, F0);
-    float D = DistributionGGX(N, H, roughness);
-    float G = GeometrySmith(N, V, L, roughness);
-
-    vec3 numerator = D * F * G;
-    float denominator = max(4.0 * NdotV * NdotL, 0.001);
-    vec3 specular = numerator / denominator;
-
-    vec3 kS = F;
-    vec3 kD = vec3(1.0) - kS;
-    kD *= 1.0 - metalness;
-
-    vec3 diffuse = albedo / 3.14159265;
-
-    return (kD * diffuse + specular) * NdotL;
-}
-
-// === Utilities ===
+#include "PBR_functions"
 
 vec3 reconstructPosition(vec2 uv, float depth) {
     float z = depth * 2.0 - 1.0;
@@ -855,4 +853,51 @@ void main()
     vec3 diffuse = albedo * NdotL * att * u_light_color;
     
     gl_FragColor = vec4(diffuse, 1.0);
+}
+
+\phong_singlepass.fs
+#version 330 core
+
+#include "PBR_functions"
+
+in vec3 v_world_position;
+in vec3 v_normal;
+in vec2 v_uv;
+
+uniform vec3 u_camera_position;
+uniform vec3 u_ambient_light;
+
+uniform sampler2D u_texture;               // Albedo map
+uniform sampler2D u_metallic_roughness;    // MER map (R: AO, G: Roughness, B: Metalness)
+
+uniform int u_light_count;
+uniform vec3 u_light_pos[10];
+uniform vec3 u_light_color[10];
+uniform float u_light_intensity[10];
+
+out vec4 FragColor;
+
+void main()
+{
+    vec3 albedo = texture(u_texture, v_uv).rgb;
+    vec3 mer = texture(u_metallic_roughness, v_uv).rgb;
+
+    float roughness = mer.g;
+    float metalness = mer.b;
+
+    vec3 N = normalize(v_normal);
+    vec3 V = normalize(u_camera_position - v_world_position);
+
+    vec3 final_color = albedo * u_ambient_light;
+
+    for (int i = 0; i < u_light_count; ++i)
+    {
+        vec3 L = normalize(u_light_pos[i] - v_world_position);
+        vec3 radiance = u_light_color[i] * u_light_intensity[i];
+
+        vec3 brdf = cookTorranceBRDF(N, V, L, albedo, roughness, metalness);
+        final_color += brdf * radiance;
+    }
+
+    FragColor = vec4(final_color, 1.0);
 }

@@ -369,7 +369,7 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 			// Single Pass:
 		//chose a shader based on material properties
 			GFX::Shader* shader = NULL;
-			shader = GFX::Shader::Get("phong");
+			shader = GFX::Shader::Get("phong_singlepass");
 
 			assert(glGetError() == GL_NO_ERROR);
 
