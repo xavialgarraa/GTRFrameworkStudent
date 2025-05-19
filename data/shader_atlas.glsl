@@ -618,6 +618,8 @@ void main()
 #define MAX_LIGHTS 10
 #define MAX_SHADOWS 4
 
+#include "PBR_functions"
+
 in vec2 uv;
 
 // G-Buffer textures
@@ -681,12 +683,20 @@ void main()
 
     vec2 uv = gl_FragCoord.xy * u_res_inv;
 
-    // Read G-Buffer data
     vec4 albedo_spec = texture(u_gbuffer_color, uv);
+    vec3 albedo = albedo_spec.rgb;
+    float roughness = albedo_spec.a;
+
+    vec4 normal_metal = texture(u_gbuffer_normal, uv);
+    vec3 N = normalize(normal_metal.rgb * 2.0 - 1.0);
+    float metalness = normal_metal.a;
+
+    vec3 F0 = mix(vec3(0.04), albedo, metalness);
+
+    // Read G-Buffer data
     vec3 K = albedo_spec.rgb;
     float shininess = albedo_spec.a * 64.0; // Adjust shininess factor
     
-    vec3 N = normalize(texture(u_gbuffer_normal, uv).xyz * 2.0 - 1.0);
     float depth = texture(u_gbuffer_depth, uv).r;
 
     if (depth >= 1.0) {
@@ -738,20 +748,32 @@ void main()
 
         vec3 light_intensity = u_light_color[i] * u_light_intensity[i] * attenuation * spotlight_factor * shadow;
 
-        // Diffuse term
-        float NdotL = max(dot(N, L), 0.0);
-        vec3 diffuse = NdotL * light_intensity;
-
-        // Specular term 
         vec3 H = normalize(L + V);
-        float specular_factor = pow(max(dot(N, H), 0.0), shininess);
-        vec3 specular = specular_factor * light_intensity * step(0.0, NdotL);
+        float NdotL = max(dot(N, L), 0.0);
+        float NdotV = max(dot(N, V), 0.0);
 
-        // Add to final color
-        final_color += K * diffuse + specular;
+        float NDF = distributionGGX(N, H, roughness);
+        float G   = geometrySmith(N, V, L, roughness);
+        vec3  F   = fresnelSchlick(max(dot(H, V), 0.0), F0);
+
+        vec3 numerator = NDF * G * F;
+        float denominator = 4.0 * NdotV * NdotL + 0.001;
+        vec3 specular = numerator / denominator;
+
+        vec3 kS = F;
+        vec3 kD = (1.0 - kS) * (1.0 - metalness);
+
+        light_intensity = u_light_color[i] * u_light_intensity[i] * attenuation * spotlight_factor * shadow;
+        vec3 diffuse = (kD * albedo / 3.141592) * NdotL;
+
+        final_color += (diffuse + specular) * light_intensity;
+
     }
+    vec3 kS = fresnelSchlick(max(dot(N, V), 0.0), F0);
+    vec3 kD = (1.0 - kS) * (1.0 - metalness);
+    vec3 ambient = u_ambient_light * (albedo * kD);
 
-    FragColor = vec4(final_color, 1.0);
+    FragColor = vec4(final_color + ambient, 1.0);
 }
 
 \light_volume.vs
@@ -894,4 +916,42 @@ void main()
     vec3 final_color = K * u_ambient_light;
     
     FragColor = vec4(final_color, 1.0);
+}
+
+\PBR_functions
+
+// PBR_functions.glsl
+
+// Fresnel - Schlick approximation
+vec3 fresnelSchlick(float cosTheta, vec3 F0) {
+    return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+}
+
+// Normal Distribution Function (GGX)
+float distributionGGX(vec3 N, vec3 H, float roughness) {
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float NdotH = max(dot(N, H), 0.0);
+    float NdotH2 = NdotH * NdotH;
+
+    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
+    denom = 3.141592 * denom * denom;
+
+    return a2 / max(denom, 0.001); // prevent divide by zero
+}
+
+// Geometry function: Smith's method with Schlick-GGX
+float geometrySchlickGGX(float NdotV, float roughness) {
+    float r = roughness + 1.0;
+    float k = (r * r) / 8.0;
+
+    return NdotV / max(NdotV * (1.0 - k) + k, 0.001);
+}
+
+float geometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
+    float NdotV = max(dot(N, V), 0.0);
+    float NdotL = max(dot(N, L), 0.0);
+    float ggx1 = geometrySchlickGGX(NdotV, roughness);
+    float ggx2 = geometrySchlickGGX(NdotL, roughness);
+    return ggx1 * ggx2;
 }
