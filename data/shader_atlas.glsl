@@ -580,34 +580,28 @@ void main()
 
 \gbuffer_fill.fs
 #version 330 core
+// Uniforms
+uniform sampler2D u_texture; // Albedo
+uniform sampler2D u_normal_texture;
+uniform sampler2D u_metallic_roughness;
 
 in vec2 v_uv;
 
-uniform sampler2D u_texture;              // albedo
-uniform sampler2D u_normal_texture;       // normal map
-uniform sampler2D u_metallic_roughness;   // MER texture (R = AO, G = Roughness, B = Metalness)
-
-uniform vec4 u_color;
-
-layout(location = 0) out vec4 gColor;   // RGB = Albedo, A = Roughness
-layout(location = 1) out vec4 gNormal;  // RGB = Normal, A = Metalness
+layout(location = 0) out vec4 gbuffer1;
+layout(location = 1) out vec4 gbuffer2;
 
 void main() {
-    // Albedo
-    vec4 albedo = texture(u_texture, v_uv) * u_color;
-
-    // Normal (convert from tangent space normal map to world, optional)
+    vec3 albedo = texture(u_texture, v_uv).rgb;
     vec3 normal = texture(u_normal_texture, v_uv).rgb;
-    normal = normalize(normal * 2.0 - 1.0); // Decompress normal
-
-    // MER values
     vec3 mer = texture(u_metallic_roughness, v_uv).rgb;
+
     float roughness = mer.g;
     float metalness = mer.b;
 
-    gColor = vec4(albedo.rgb, roughness);
-    gNormal = vec4(normal, metalness);
+    gbuffer1 = vec4(albedo, roughness);
+    gbuffer2 = vec4(normal, metalness);
 }
+
 
 
 \deferred_single.fs
@@ -651,6 +645,70 @@ uniform mat4 u_shadow_matrix_3;
 
 out vec4 FragColor;
 
+// === Cook-Torrance PBR Functions ===
+
+vec3 fresnelSchlick(float cosTheta, vec3 F0)
+{
+    return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+}
+
+float DistributionGGX(vec3 N, vec3 H, float roughness)
+{
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float NdotH = max(dot(N, H), 0.0);
+    float NdotH2 = NdotH * NdotH;
+
+    float num = a2;
+    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
+    denom = 3.14159265 * denom * denom;
+
+    return num / denom;
+}
+
+float GeometrySchlickGGX(float NdotV, float roughness)
+{
+    float r = roughness + 1.0;
+    float k = (r * r) / 8.0;
+
+    return NdotV / (NdotV * (1.0 - k) + k);
+}
+
+float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
+{
+    float NdotV = max(dot(N, V), 0.0);
+    float NdotL = max(dot(N, L), 0.0);
+    return GeometrySchlickGGX(NdotV, roughness) * GeometrySchlickGGX(NdotL, roughness);
+}
+
+vec3 cookTorranceBRDF(vec3 N, vec3 V, vec3 L, vec3 albedo, float roughness, float metalness)
+{
+    vec3 H = normalize(V + L);
+
+    float NdotL = max(dot(N, L), 0.0);
+    float NdotV = max(dot(N, V), 0.0);
+    float VdotH = max(dot(V, H), 0.0);
+
+    vec3 F0 = mix(vec3(0.04), albedo, metalness);
+    vec3 F = fresnelSchlick(VdotH, F0);
+    float D = DistributionGGX(N, H, roughness);
+    float G = GeometrySmith(N, V, L, roughness);
+
+    vec3 numerator = D * F * G;
+    float denominator = max(4.0 * NdotV * NdotL, 0.001);
+    vec3 specular = numerator / denominator;
+
+    vec3 kS = F;
+    vec3 kD = vec3(1.0) - kS;
+    kD *= 1.0 - metalness;
+
+    vec3 diffuse = albedo / 3.14159265;
+
+    return (kD * diffuse + specular) * NdotL;
+}
+
+// === Utilities ===
+
 vec3 reconstructPosition(vec2 uv, float depth) {
     float z = depth * 2.0 - 1.0;
     vec2 uv_clip = uv * 2.0 - 1.0;
@@ -676,27 +734,26 @@ float computeShadow(sampler2D shadow_map, mat4 shadow_matrix, vec3 world_positio
 
 void main()
 {
-
     vec2 uv = gl_FragCoord.xy * u_res_inv;
 
     // Read G-Buffer data
     vec4 albedo_spec = texture(u_gbuffer_color, uv);
-    vec3 K = albedo_spec.rgb;
-    float shininess = albedo_spec.a * 64.0; // Adjust shininess factor
-    
-    vec3 N = normalize(texture(u_gbuffer_normal, uv).xyz * 2.0 - 1.0);
-    float depth = texture(u_gbuffer_depth, uv).r;
+    vec3 albedo = albedo_spec.rgb;
+    float roughness = albedo_spec.a;
 
-    if (depth >= 1.0) {
+    vec4 normal_metal = texture(u_gbuffer_normal, uv);
+    vec3 N = normalize(normal_metal.rgb * 2.0 - 1.0);
+    float metalness = normal_metal.a;
+
+    float depth = texture(u_gbuffer_depth, uv).r;
+    if (depth >= 1.0)
         discard;
-    }
 
     vec3 world_position = reconstructPosition(uv, depth);
-    
     vec3 V = normalize(u_camera_position - world_position);
-    
-    vec3 final_color = K * u_ambient_light;
-    
+
+    vec3 final_color = albedo * u_ambient_light;
+
     for(int i = 0; i < u_light_count && i < MAX_LIGHTS; i++) {
         vec3 L;
         float attenuation = 1.0;
@@ -708,7 +765,6 @@ void main()
             float distance = length(light_vec);
             L = normalize(light_vec);
             attenuation = 1.0 / (distance * distance);
-            
             if(i == 0) shadow = computeShadow(u_shadow_map_0, u_shadow_matrix_0, world_position);
         }
         else if(u_light_type[i] == 2) { // Spot light
@@ -722,12 +778,10 @@ void main()
             float epsilon = inner - outer;
             spotlight_factor = clamp((theta - outer) / epsilon, 0.0, 1.0);
             attenuation = 1.0 / (distance * distance);
-            
             if(i == 0) shadow = computeShadow(u_shadow_map_0, u_shadow_matrix_0, world_position);
         }
         else if(u_light_type[i] == 3) { // Directional light
             L = normalize(-u_light_dir[i]);
-            
             if(i == 3) shadow = computeShadow(u_shadow_map_3, u_shadow_matrix_3, world_position);
         }
         else {
@@ -736,21 +790,13 @@ void main()
 
         vec3 light_intensity = u_light_color[i] * u_light_intensity[i] * attenuation * spotlight_factor * shadow;
 
-        // Diffuse term
-        float NdotL = max(dot(N, L), 0.0);
-        vec3 diffuse = NdotL * light_intensity;
-
-        // Specular term 
-        vec3 H = normalize(L + V);
-        float specular_factor = pow(max(dot(N, H), 0.0), shininess);
-        vec3 specular = specular_factor * light_intensity * step(0.0, NdotL);
-
-        // Add to final color
-        final_color += K * diffuse + specular;
+        vec3 brdf = cookTorranceBRDF(N, V, L, albedo, roughness, metalness);
+        final_color += brdf * light_intensity;
     }
 
     FragColor = vec4(final_color, 1.0);
 }
+
 
 \light_volume.fs
 // Fragment Shader
