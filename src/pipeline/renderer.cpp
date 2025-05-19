@@ -123,8 +123,10 @@ void Renderer::setupScene()
 	else
 		skybox_cubemap = nullptr;
 
-	ao_sample_points = generateSpherePoints(ssao_sample_count, 1.0f, false);
+	if (!ssao_shader)
+		ssao_shader = GFX::Shader::Get("ssao_pass");
 
+	ao_sample_points = generateSpherePoints(ssao_sample_count, 1.0f, true);
 }
 
 // Updated parseNodes function to include frustum culling
@@ -251,8 +253,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 	lighting_fbo->unbind();
 
-
-	gbuffer_fbo->color_textures[0]->toViewport();
+	ssao_fbo->color_textures[0]->toViewport();
 
 	//render skybox
 	if (skybox_cubemap)

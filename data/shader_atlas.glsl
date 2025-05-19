@@ -12,6 +12,7 @@ gbuffer_fill basic.vs gbuffer_fill.fs
 phong_deferred quad.vs deferred_single.fs
 light_volume basic.vs light_volume.fs
 phong_singlepass basic.vs phong_singlepass.fs
+ssao_pass quad.vs ssao_pass.fs
 
 \test.cs
 #version 430 core
@@ -955,4 +956,62 @@ void main()
     }
 
     FragColor = vec4(final_color, 1.0);
+}
+
+\ssao_pass.fs
+#version 330 core
+
+in vec2 v_uv;
+out vec4 FragColor;
+
+// G-Buffer depth
+uniform sampler2D u_gbuffer_depth;
+
+// SSAO parameters
+uniform vec3 u_sample_pos[64];
+uniform int u_sample_count;
+uniform float u_sample_radius;
+
+// Projection matrices
+uniform mat4 u_p_mat;
+uniform mat4 u_inv_p_mat;
+
+// Helpers
+vec3 reconstructViewPos(vec2 uv, float depth) {
+    float z = depth * 2.0 - 1.0;
+    vec4 clip = vec4(uv * 2.0 - 1.0, z, 1.0);
+    vec4 view = u_inv_p_mat * clip;
+    return view.xyz / view.w;
+}
+
+void main()
+{
+    float center_depth = texture(u_gbuffer_depth, v_uv).r;
+    if (center_depth >= 1.0) discard;
+
+    vec3 origin = reconstructViewPos(v_uv, center_depth);
+    float occlusion = 0.0;
+
+    for (int i = 0; i < u_sample_count; ++i)
+    {
+        vec3 sample_pos = origin + u_sample_pos[i] * u_sample_radius;
+
+        // Project to clip space
+        vec4 proj = u_p_mat * vec4(sample_pos, 1.0);
+        proj.xyz /= proj.w;
+        vec2 sample_uv = proj.xy * 0.5 + 0.5;
+
+        // Skip if out of screen
+        if (sample_uv.x < 0.0 || sample_uv.x > 1.0 || sample_uv.y < 0.0 || sample_uv.y > 1.0)
+            continue;
+
+        float sample_depth = texture(u_gbuffer_depth, sample_uv).r;
+        vec3 sample_view = reconstructViewPos(sample_uv, sample_depth);
+
+        if (sample_view.z < sample_pos.z - 0.01) // occlusion threshold
+            occlusion += 1.0;
+    }
+
+    occlusion = 1.0 - (occlusion / float(u_sample_count));
+    FragColor = vec4(vec3(occlusion), 1.0);
 }
