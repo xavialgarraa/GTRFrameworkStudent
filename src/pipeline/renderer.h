@@ -34,6 +34,14 @@ namespace SCN {
 		GFX::FBO* gbuffer_fbo = nullptr;
 		bool use_deferred = false;
 
+		// variables for assignment 6
+		GFX::FBO* ssao_fbo = nullptr;
+		GFX::Shader* ssao_shader = nullptr;
+		std::vector<vec3> ao_sample_points;
+		int ssao_sample_count = 32;
+		float ssao_radius = 0.05f;
+		bool ssao_enabled = true;
+
 		std::vector<GFX::FBO*> shadow_fbos;
 
 		GFX::Texture* skybox_cubemap;
@@ -73,6 +81,8 @@ namespace SCN {
 		void renderDeferredSinglePass();
 
 		void renderLightVolumes(Camera* camera);
+
+		void renderSSAO(Camera* camera);
 
 		void showUI();
 	};

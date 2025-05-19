@@ -64,7 +64,7 @@ Renderer::Renderer(const char* shader_atlas_filename)
 		shadow_fbos.push_back(shadow_fbo);
 	}
 
-	//Assigment 2.1 Generate G-Buffer
+	// Assigment 2.1 Generate G-Buffer
 	gbuffer_fbo = new GFX::FBO();
 
 	// Hardcode to test - luego reemplazar
@@ -83,6 +83,36 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	lighting_fbo->create(width, height, 1, GL_RGBA, GL_UNSIGNED_BYTE, true);
 	lighting_fbo->color_textures[0]->filename = "Lighting Result";
 	lighting_fbo->depth_texture->filename = "Lighting Depth";
+
+	// 2.1 assignment 5
+	ssao_fbo = new GFX::FBO();
+	ssao_fbo->create(width, height, 1, GL_RGB, GL_UNSIGNED_BYTE, false);
+	ssao_fbo->color_textures[0]->filename = "SSAO Texture";
+}
+
+std::vector<vec3> generateSpherePoints(int num, float radius, bool hemi) {
+	std::vector<vec3> points;
+	points.resize(num);
+
+	for (int i = 0; i < num; i++) {
+		float u = random();
+		float v = random();
+
+		float theta = u * 2.0f * PI;
+		float phi = acos(2.0f * v - 1.0f);
+		float r = cbrt(random() * 0.9f + 0.1f) * radius;
+
+		vec3 p;
+		p.x = r * sin(phi) * cos(theta);
+		p.y = r * sin(phi) * sin(theta);
+		p.z = r * cos(phi);
+
+		if (hemi && p.z < 0.0f) p.z *= -1.0f;
+
+		points[i] = p;
+	}
+
+	return points;
 }
 
 
@@ -92,6 +122,9 @@ void Renderer::setupScene()
 		skybox_cubemap = GFX::Texture::Get(std::string(scene->base_folder + "/" + scene->skybox_filename).c_str());
 	else
 		skybox_cubemap = nullptr;
+
+	ao_sample_points = generateSpherePoints(ssao_sample_count, 1.0f, false);
+
 }
 
 // Updated parseNodes function to include frustum culling
@@ -150,6 +183,40 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 	}
 }
 
+void Renderer::renderSSAO(Camera* camera)
+{
+	if (!ssao_enabled || !ssao_shader) return;
+
+	ssao_fbo->bind();
+	glClearColor(1.0, 1.0, 1.0, 1.0);
+	glClear(GL_COLOR_BUFFER_BIT);
+
+	ssao_shader->enable();
+
+	ssao_shader->setUniform("u_res_inv", Vector2f(1.0f / ssao_fbo->width, 1.0f / ssao_fbo->height));
+	ssao_shader->setUniform("u_sample_count", ssao_sample_count);
+	ssao_shader->setUniform("u_sample_radius", ssao_radius);
+	ssao_shader->setUniform3Array("u_sample_pos", (float*)&ao_sample_points[0], ssao_sample_count);
+
+	// Bind depth texture
+	ssao_shader->setTexture("u_gbuffer_depth", gbuffer_fbo->depth_texture, 0);
+
+	// Send projection and inverse
+	Matrix44 proj = camera->projection_matrix;
+	Matrix44 inv_proj = proj;
+	inv_proj.inverse();
+
+	ssao_shader->setUniform("u_p_mat", proj);
+	ssao_shader->setUniform("u_inv_p_mat", inv_proj);
+
+	// Draw quad
+	GFX::Mesh::getQuad()->render(GL_TRIANGLES);
+
+	ssao_shader->disable();
+	ssao_fbo->unbind();
+}
+
+
 void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 {
 	this->scene = scene;
@@ -171,6 +238,9 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	GFX::checkGLErrors();
 
 	renderToGBuffer();
+
+	if (ssao_enabled)
+		renderSSAO(camera);
 
 	gbuffer_fbo->depth_texture->copyTo(lighting_fbo->depth_texture);
 
@@ -770,6 +840,17 @@ void Renderer::showUI()
 	if (use_deferred && use_multipass)
 	{
 		use_multipass = false;
+	}
+
+	ImGui::Checkbox("Enable SSAO", &ssao_enabled);
+
+	static int last_sample_count = ssao_sample_count;
+	ImGui::SliderInt("SSAO Samples", &ssao_sample_count, 1, 64);
+	ImGui::SliderFloat("SSAO Radius", &ssao_radius, 0.01f, 0.5f);
+
+	if (ssao_sample_count != last_sample_count) {
+		ao_sample_points = generateSpherePoints(ssao_sample_count, 1.0f, false);
+		last_sample_count = ssao_sample_count;
 	}
 }
 
