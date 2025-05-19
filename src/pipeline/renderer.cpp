@@ -199,6 +199,7 @@ void Renderer::renderSSAO(Camera* camera)
 	ssao_shader->setUniform("u_sample_count", ssao_sample_count);
 	ssao_shader->setUniform("u_sample_radius", ssao_radius);
 	ssao_shader->setUniform3Array("u_sample_pos", (float*)&ao_sample_points[0], ssao_sample_count);
+	ssao_shader->setTexture("u_gbuffer_normal", gbuffer_fbo->color_textures[1], 1);
 
 	// Bind depth texture
 	ssao_shader->setTexture("u_gbuffer_depth", gbuffer_fbo->depth_texture, 0);
@@ -262,7 +263,6 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	if (use_deferred)
 	{
 		renderLightVolumes(camera);
-
 	}
 
 	// Separate opaque and transparent objects
@@ -711,6 +711,7 @@ void Renderer::renderDeferredSinglePass()
 	shader->setUniform3Array("u_light_dir", (float*)light_dir, min(light_list.size(), 10));
 	shader->setUniform2Array("u_light_cone", (float*)cone_info, min(light_list.size(), 10));
 	shader->setUniform("u_ambient_light", scene->ambient_light);
+	shader->setUniform("u_ssao_enabled", ssao_enabled);
 
 	// We uploaded all the shadow maps manual
 	shader->setUniform("u_shadow_map_0", (shadow_fbos[0]->depth_texture), texture_slots++); //SPOT
@@ -844,13 +845,13 @@ void Renderer::showUI()
 	}
 
 	ImGui::Checkbox("Enable SSAO", &ssao_enabled);
-
+	
 	static int last_sample_count = ssao_sample_count;
 	ImGui::SliderInt("SSAO Samples", &ssao_sample_count, 1, 64);
 	ImGui::SliderFloat("SSAO Radius", &ssao_radius, 0.01f, 0.5f);
 
 	if (ssao_sample_count != last_sample_count) {
-		ao_sample_points = generateSpherePoints(ssao_sample_count, 1.0f, false);
+		ao_sample_points = generateSpherePoints(ssao_sample_count, 1.0f, true);
 		last_sample_count = ssao_sample_count;
 	}
 }

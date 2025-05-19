@@ -617,6 +617,9 @@ uniform sampler2D u_gbuffer_color;
 uniform sampler2D u_gbuffer_normal;
 uniform sampler2D u_gbuffer_depth;
 
+uniform sampler2D u_ssao_texture;
+uniform bool u_ssao_enabled;
+
 // Camera info
 uniform mat4 u_inverse_viewprojection;
 uniform vec3 u_camera_position;
@@ -748,7 +751,8 @@ void main()
     vec3 world_position = reconstructPosition(uv, depth);
     vec3 V = normalize(u_camera_position - world_position);
 
-    vec3 final_color = albedo * u_ambient_light;
+    float ao = u_ssao_enabled ? texture(u_ssao_texture, uv).r : 1.0;
+    vec3 final_color = albedo * u_ambient_light * ao;
 
     for(int i = 0; i < u_light_count && i < MAX_LIGHTS; i++) {
         vec3 L;
@@ -964,19 +968,19 @@ void main()
 in vec2 v_uv;
 out vec4 FragColor;
 
-// G-Buffer depth
+// G-Buffer
 uniform sampler2D u_gbuffer_depth;
+uniform sampler2D u_gbuffer_normal;
 
-// SSAO parameters
+// SSAO
 uniform vec3 u_sample_pos[64];
 uniform int u_sample_count;
 uniform float u_sample_radius;
 
-// Projection matrices
+// Matrius
 uniform mat4 u_p_mat;
 uniform mat4 u_inv_p_mat;
 
-// Helpers
 vec3 reconstructViewPos(vec2 uv, float depth) {
     float z = depth * 2.0 - 1.0;
     vec4 clip = vec4(uv * 2.0 - 1.0, z, 1.0);
@@ -987,28 +991,43 @@ vec3 reconstructViewPos(vec2 uv, float depth) {
 void main()
 {
     float center_depth = texture(u_gbuffer_depth, v_uv).r;
-    if (center_depth >= 1.0) discard;
+    if (center_depth >= 1.0)
+        discard;
 
     vec3 origin = reconstructViewPos(v_uv, center_depth);
+
+    // Reconstruct and normalize normal from G-Buffer
+    vec3 normal = texture(u_gbuffer_normal, v_uv).xyz * 2.0 - 1.0;
+    normal = normalize(normal);
+
+    // Build TBN (Tangent, Bitangent, Normal)
+    vec3 tangent = normalize(cross(normal, vec3(0.0, 1.0, 0.0)));
+    if (length(tangent) < 0.01)
+        tangent = normalize(cross(normal, vec3(1.0, 0.0, 0.0)));
+    vec3 bitangent = cross(normal, tangent);
+    mat3 TBN = mat3(tangent, bitangent, normal);
+
     float occlusion = 0.0;
 
     for (int i = 0; i < u_sample_count; ++i)
     {
-        vec3 sample_pos = origin + u_sample_pos[i] * u_sample_radius;
+        vec3 sample_vec = TBN * u_sample_pos[i];  // orientació SSAO+
+        vec3 sample_pos = origin + sample_vec * u_sample_radius;
 
-        // Project to clip space
+        // Project sample_pos a pantalla
         vec4 proj = u_p_mat * vec4(sample_pos, 1.0);
         proj.xyz /= proj.w;
         vec2 sample_uv = proj.xy * 0.5 + 0.5;
 
-        // Skip if out of screen
+        // Salta si està fora de pantalla
         if (sample_uv.x < 0.0 || sample_uv.x > 1.0 || sample_uv.y < 0.0 || sample_uv.y > 1.0)
             continue;
 
         float sample_depth = texture(u_gbuffer_depth, sample_uv).r;
         vec3 sample_view = reconstructViewPos(sample_uv, sample_depth);
 
-        if (sample_view.z < sample_pos.z - 0.01) // occlusion threshold
+        // Si el punt mostrat està més a prop que la mostra → occlusion
+        if (sample_view.z < sample_pos.z - 0.01)
             occlusion += 1.0;
     }
 
