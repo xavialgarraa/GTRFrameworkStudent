@@ -185,7 +185,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 			copyDepthBuffer(gbuffer_fbo, lighting_fbo);
 
 			lighting_fbo->bind();
-			glClear(GL_COLOR_BUFFER_BIT);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 			glDisable(GL_BLEND);
 			glDepthMask(GL_FALSE); 

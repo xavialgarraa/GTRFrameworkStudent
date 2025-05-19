@@ -803,10 +803,7 @@ void main()
 
 
 \light_volume.fs
-varying vec3 v_position;
-varying vec3 v_world_position;
-varying vec3 v_normal;
-varying vec2 v_uv;
+#version 330 core
 
 uniform vec3 u_camera_position;
 uniform mat4 u_inverse_viewprojection;
@@ -823,52 +820,67 @@ uniform sampler2D u_gbuffer_color;
 uniform sampler2D u_gbuffer_normal;
 uniform sampler2D u_gbuffer_depth;
 
-vec3 getPosition(vec2 uv, float depth)
-{
+#include "PBR_functions"
+
+
+out vec4 FragColor;
+
+vec3 getPosition(vec2 uv, float depth) {
     vec4 pos = u_inverse_viewprojection * vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     return pos.xyz / pos.w;
 }
 
-void main()
-{
+void main() {
     vec2 uv = gl_FragCoord.xy * u_res_inv;
-    
-    // Reconstruct position from depth
-    float depth = texture2D(u_gbuffer_depth, uv).x;
+
+    float depth = texture(u_gbuffer_depth, uv).r;
+    if (depth >= 1.0) discard;
+
     vec3 pos = getPosition(uv, depth);
-    
-    // Sample GBuffer
-    vec4 color = texture2D(u_gbuffer_color, uv);
-    vec3 normal = normalize(texture2D(u_gbuffer_normal, uv).xyz * 2.0 - 1.0);
-    
-    // Light vector calculation
+    vec4 albedo_spec = texture(u_gbuffer_color, uv);
+    vec4 normal_metal = texture(u_gbuffer_normal, uv);
+
+    vec3 albedo = albedo_spec.rgb;
+    float roughness = albedo_spec.a;
+    vec3 normal = normalize(normal_metal.rgb * 2.0 - 1.0);
+    float metalness = normal_metal.a;
+
     vec3 light_vec = u_light_pos - pos;
     float dist = length(light_vec);
-    light_vec = normalize(light_vec);
-    
-    // Attenuation - improved formula
-    float att = u_light_intensity / (1.0 + 0.1*dist + 0.01*dist*dist);
-    
-    // Handle different light types
-    if (u_light_type == 2) // SPOT
-    {
-        float cos_angle = dot(-light_vec, normalize(u_light_dir));
+    vec3 L = normalize(light_vec);
+    vec3 V = normalize(u_camera_position - pos);
+    vec3 H = normalize(V + L);
+
+    float NdotL = max(dot(normal, L), 0.0);
+    float NdotV = max(dot(normal, V), 0.0);
+
+    // Attenuation
+    float att = u_light_intensity / (1.0 + 0.1 * dist + 0.01 * dist * dist);
+
+    // Spotlight
+    if (u_light_type == 2) {
+        float cos_angle = dot(-L, normalize(u_light_dir));
         float spot = smoothstep(u_light_cone.y, u_light_cone.x, cos_angle);
         att *= spot;
     }
-    
-    // Diffuse
-    float NdotL = max(0.0, dot(normal, light_vec));
-    vec3 diffuse = color.rgb * NdotL * att * u_light_color;
-    
-    // Specular
-    vec3 view_dir = normalize(u_camera_position - pos);
-    vec3 reflect_dir = reflect(-light_vec, normal);
-    float spec = pow(max(dot(view_dir, reflect_dir), 0.0), 32.0);
-    vec3 specular = spec * att * u_light_color;
-    
-    gl_FragColor = vec4(diffuse + specular, 1.0);
+
+    // PBR: Cook-Torrance
+    vec3 F0 = mix(vec3(0.04), albedo, metalness);
+    vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
+    float D = distributionGGX(normal, H, roughness);
+    float G = geometrySmith(normal, V, L, roughness);
+
+    vec3 specular = (D * G * F) / max(4.0 * NdotV * NdotL, 0.001);
+    vec3 kS = F;
+    vec3 kD = (1.0 - kS) * (1.0 - metalness);
+    vec3 diffuse = kD * albedo / 3.141592;
+
+    vec3 radiance = u_light_color * att;
+    vec3 color = (diffuse + specular) * radiance * NdotL;
+
+    FragColor = vec4(color, 1.0);
 }
+
 
 \deferred_ambient.fs
 #version 330 core
@@ -891,6 +903,9 @@ uniform vec2 u_res_inv;
 
 out vec4 FragColor;
 
+#include "PBR_functions"
+
+
 vec3 reconstructPosition(vec2 uv, float depth) {
     float z = depth * 2.0 - 1.0;
     vec2 uv_clip = uv * 2.0 - 1.0;
@@ -899,24 +914,28 @@ vec3 reconstructPosition(vec2 uv, float depth) {
     return world_pos.xyz / world_pos.w;
 }
 
-void main()
-{
+void main() {
     vec2 uv = gl_FragCoord.xy * u_res_inv;
 
-    // Read G-Buffer data
     vec4 albedo_spec = texture(u_gbuffer_color, uv);
-    vec3 K = albedo_spec.rgb;
+    vec3 albedo = albedo_spec.rgb;
+    float roughness = albedo_spec.a;
+
+    vec4 normal_metal = texture(u_gbuffer_normal, uv);
+    float metalness = normal_metal.a;
+
     float depth = texture(u_gbuffer_depth, uv).r;
+    if (depth >= 1.0) discard;
 
-    if (depth >= 1.0) {
-        discard;
-    }
+    vec3 F0 = mix(vec3(0.04), albedo, metalness);
+    vec3 kS = fresnelSchlick(1.0, F0); // full reflection
+    vec3 kD = (1.0 - kS) * (1.0 - metalness);
 
-    // Calculate ambient lighting only
-    vec3 final_color = K * u_ambient_light;
-    
-    FragColor = vec4(final_color, 1.0);
+    vec3 ambient = u_ambient_light * albedo * kD;
+
+    FragColor = vec4(ambient, 1.0);
 }
+
 
 \PBR_functions
 
