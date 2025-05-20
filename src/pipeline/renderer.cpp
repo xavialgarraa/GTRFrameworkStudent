@@ -250,39 +250,43 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 			ssao_fbo->color_textures[0]->toViewport();
 
 			//blurSSAOTexture();
+
+			if (ssao_plus_deferred) {
+
+				//2.2
+				// Restaurar estado OpenGL
+				glBindFramebuffer(GL_FRAMEBUFFER, 0);
+				glViewport(0, 0, gbuffer_fbo->width, gbuffer_fbo->height);
+				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+				glDepthMask(GL_TRUE);
+				glDepthFunc(GL_LESS);
+				glDisable(GL_BLEND);
+
+				//render skybox
+				if (skybox_cubemap)
+					renderSkybox(skybox_cubemap);
+
+				// Render simple pass
+				renderDeferredSinglePass();
+			}
 		}
-		else if (ssao_plus_deferred)
+		else if (use_hdr)
 		{
-			copyDepthBuffer(gbuffer_fbo, ssao_fbo);
-			if (use_ssao_plus)
-			{
-				generateSpherePoints(ssao_kernel_size, ssao_radius, true);
-
-			}
-			else {
-				generateSpherePoints(ssao_kernel_size, ssao_radius, false);
-
-			}
-
-			ssao_fbo->bind();
+			//2.2
+			hdr_fbo->bind();
+			glClearColor(0, 0, 0, 1);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-			glDisable(GL_BLEND);
-			glDepthMask(GL_FALSE);
-			glDepthFunc(GL_LEQUAL);
+			// Render scene (deferred simple pass)
+			renderDeferredSinglePass();
 
-			//render skybox
-			if (skybox_cubemap)
-				renderSkybox(skybox_cubemap);
-
-			renderSSAO(Camera::current);
-
-			// 8. Unbind lighting FBO
-			ssao_fbo->unbind();
-
-			// 9. Mostrar resultado final
-			ssao_fbo->color_textures[0]->toViewport();
-
+			hdr_fbo->unbind();
+			
+			// Tone mapping final al quad
+			renderToTonemap();
+			
+		}
+		else{
 			//2.2
 			// Restaurar estado OpenGL
 			glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -298,21 +302,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 			// Render simple pass
 			renderDeferredSinglePass();
-
-		}
-		else {
-			//2.2
-			hdr_fbo->bind();
-			glClearColor(0, 0, 0, 1);
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-			// Render scene (deferred simple pass)
-			renderDeferredSinglePass();
-
-			hdr_fbo->unbind();
-
-			// Tone mapping final al quad
-			renderToTonemap();
+			
 		}
 
 		// Enable blending for transparent objects
@@ -320,10 +310,25 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 		//transparent objects
-		
+		std::vector<sDrawCommand> transparent_commands;
+		// Sort transparent commands back-to-front
+		std::sort(transparent_commands.begin(), transparent_commands.end(), [](const sDrawCommand& a, const sDrawCommand& b) {
+			return a.distance_to_camera > b.distance_to_camera;
+			});
+
+		// Enable blending for transparent objects
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+		// Render transparent objects last
+		for (const sDrawCommand& command : transparent_commands) {
+			renderMeshWithMaterial(command.model, command.mesh, command.material);
+		}
 
 		// Disable blending for next frame
 		glDisable(GL_BLEND);
+
+		
 	}
 	else {
 		// Separate opaque and transparent objects
