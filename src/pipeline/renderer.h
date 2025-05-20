@@ -47,6 +47,17 @@ namespace SCN {
 
 		bool front_face_culling;
 
+		// In Renderer.h
+		GFX::FBO* ssao_fbo;
+		GFX::FBO* ssao_blur_fbo;
+		std::vector<Vector3f> ssao_samples;
+		GLuint ssao_noise_texture;
+		float ssao_radius = 0.5f;
+		int ssao_kernel_size = 32;
+		bool use_ssao = false;
+		bool use_hdr = false;
+		float exposure = 3.f;
+		bool use_ssao_plus = false;
 
 		//updated every frame
 		Renderer(const char* shaders_atlas_filename );
@@ -82,6 +93,12 @@ namespace SCN {
 		void setLightVolumeRenderState();
 
 		void renderDeferredAmbientPass();
+
+		std::vector<vec3> generateSpherePoints(int num, float radius, bool hemi);
+
+		void renderSSAO(Camera* camera);
+
+
 
 
 

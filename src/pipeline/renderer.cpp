@@ -83,6 +83,11 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	lighting_fbo->create(width, height, 1, GL_RGBA, GL_UNSIGNED_BYTE, true);
 	lighting_fbo->color_textures[0]->filename = "Lighting Result";
 	lighting_fbo->depth_texture->filename = "Lighting Depth";
+
+	// 2.1 assignment 5
+	ssao_fbo = new GFX::FBO();
+	ssao_fbo->create(width, height, 1, GL_RGB, GL_UNSIGNED_BYTE, false);
+	ssao_fbo->color_textures[0]->filename = "SSAO Texture";
 }
 
 
@@ -208,6 +213,11 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 			// 9. Mostrar resultado final
 			lighting_fbo->color_textures[0]->toViewport();
 			
+		}
+		else if (use_ssao){
+			ssao_samples = generateSpherePoints(ssao_kernel_size, ssao_radius , true);
+			renderSSAOPass();
+			blurSSAOTexture();
 		}
 		else {
 			//2.2
@@ -906,6 +916,74 @@ void Renderer::renderDeferredAmbientPass() {
 
 }
 
+std::vector<vec3> generateSpherePoints(int num, float radius, bool hemi) {
+	std::vector<vec3> points;
+	points.resize(num);
+
+	for (int i = 0; i < num; i++) {
+		float u = random();
+		float v = random();
+
+		float theta = u * 2.0f * PI;
+		float phi = acos(2.0f * v - 1.0f);
+		float r = cbrt(random() * 0.9f + 0.1f) * radius;
+
+		vec3 p;
+		p.x = r * sin(phi) * cos(theta);
+		p.y = r * sin(phi) * sin(theta);
+		p.z = r * cos(phi);
+
+		if (hemi && p.z < 0.0f) p.z *= -1.0f;
+
+		points[i] = p;
+	}
+
+	return points;
+}
+
+void Renderer::renderSSAO(Camera* camera)
+{
+	GFX::Shader* ssao_shader = GFX::Shader::Get("ssao");
+
+	if (!use_ssao || !ssao_shader) return;
+
+	ssao_fbo->bind();
+	glViewport(0, 0, ssao_fbo->width, ssao_fbo->height);
+	glClearColor(1.0, 1.0, 1.0, 1.0);
+	glClear(GL_COLOR_BUFFER_BIT);
+
+	ssao_shader->enable();
+
+	ssao_shader->setUniform("u_res_inv", Vector2f(1.0f / ssao_fbo->width, 1.0f / ssao_fbo->height));
+	ssao_shader->setUniform("u_sample_count", ssao_kernel_size);
+	ssao_shader->setUniform("u_sample_radius", ssao_radius);
+	ssao_shader->setUniform3Array("u_sample_pos", (float*)&ssao_samples[0], ssao_kernel_size);
+	ssao_shader->setUniform("u_use_ssao_plus", use_ssao_plus ? 1 : 0);
+
+	ssao_shader->setTexture("u_gbuffer_normal", gbuffer_fbo->color_textures[1], 1);
+
+	// Bind depth texture
+	ssao_shader->setTexture("u_gbuffer_depth", gbuffer_fbo->depth_texture, 0);
+
+	// Send projection and inverse
+	Matrix44 proj = camera->projection_matrix;
+	Matrix44 inv_proj = proj;
+	inv_proj.inverse();
+
+	ssao_shader->setUniform("u_p_mat", proj);
+	ssao_shader->setUniform("u_inv_p_mat", inv_proj);
+	
+	glDisable(GL_DEPTH_TEST);
+	// Draw quad
+	GFX::Mesh::getQuad()->render(GL_TRIANGLES);
+	
+	glEnable(GL_DEPTH_TEST);
+
+	ssao_shader->disable();
+	ssao_fbo->unbind();
+}
+
+
 void Renderer::copyDepthBuffer(GFX::FBO* source, GFX::FBO* dest) {
 	glBindFramebuffer(GL_READ_FRAMEBUFFER, source->fbo_id);
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dest->fbo_id);
@@ -956,6 +1034,19 @@ void Renderer::showUI()
 	if (light_volume)
 	{
 		use_deferred = true;
+	}
+
+	// In showUI()
+	ImGui::Checkbox("SSAO", &use_ssao);
+	if (use_ssao) {
+		ImGui::Checkbox("SSAO+", &use_ssao_plus);
+		ImGui::SliderFloat("SSAO Radius", &ssao_radius, 0.01f, 2.0f);
+		ImGui::SliderInt("SSAO Samples", &ssao_kernel_size, 1, 64);
+}
+
+	ImGui::Checkbox("HDR", &use_hdr);
+	if (use_hdr) {
+		ImGui::SliderFloat("Exposure", &exposure, 0.1f, 5.0f);
 	}
 	
 }
