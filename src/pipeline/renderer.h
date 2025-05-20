@@ -1,6 +1,7 @@
 #pragma once
 #include "scene.h"
 #include "prefab.h"
+#include "camera.h"
 
 #include "light.h"
 
@@ -25,12 +26,16 @@ namespace SCN {
 	public:
 		bool render_wireframe;
 		bool render_boundaries;
+		bool light_volume = false;
 
 		GFX::Texture* shadow_map = nullptr;
 		GFX::FBO* shadow_fbo = nullptr;
+		GFX::FBO* lighting_fbo = nullptr;
 
 		GFX::FBO* gbuffer_fbo = nullptr;
 		bool use_deferred = false;
+
+		GFX::FBO* hdr_fbo = nullptr;
 
 		std::vector<GFX::FBO*> shadow_fbos;
 
@@ -40,9 +45,35 @@ namespace SCN {
 
 		bool use_multipass;
 
-		float shadow_bias;
+		float shadow_bias = 0.003f;
 
 		bool front_face_culling;
+
+		// In Renderer.h
+		GFX::FBO* ssao_fbo;
+		GFX::FBO* ssao_blur_fbo;
+		std::vector<vec3> ssao_samples;
+		//GLuint ssao_noise_texture;
+		float ssao_radius = 0.5f;
+		int ssao_kernel_size = 32;
+		bool use_ssao = false;
+		bool use_hdr = false;
+		float exposure = 1.f;
+		bool use_ssao_plus = false;
+
+		bool apply_gamma = true;
+		bool use_aces = false;
+		enum ToneMappingOperator {
+			TONE_LINEAR = 0,
+			TONE_REINHARD = 1,
+			TONE_ACES = 2
+		};
+
+		int tone_operator = TONE_REINHARD;
+
+		bool ssao_plus_deferred = false;
+
+		float ambient_intensity = 0.3f;
 
 
 		//updated every frame
@@ -68,6 +99,25 @@ namespace SCN {
 		//to render one mesh given its material and transformation matrix
 		void renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
 		void renderToGBuffer();
+		void renderDeferredSinglePass();
+		void renderDirectionalLights();
+
+		void copyDepthBuffer(GFX::FBO* source, GFX::FBO* dest);
+
+
+		void restoreDefaultRenderState();
+
+		void setLightVolumeRenderState();
+
+		void renderDeferredAmbientPass();
+
+		void generateSpherePoints(int num, float radius, bool hemi);
+
+		void renderSSAO(Camera* camera);
+
+		void renderToTonemap();
+
+		void renderLightVolumes(Camera* camera);
 
 		void showUI();
 	};
