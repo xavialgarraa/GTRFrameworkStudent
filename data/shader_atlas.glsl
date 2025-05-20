@@ -627,6 +627,8 @@ in vec2 uv;
 uniform sampler2D u_gbuffer_color;
 uniform sampler2D u_gbuffer_normal;
 uniform sampler2D u_gbuffer_depth;
+uniform sampler2D u_ssao_map;
+
 
 // Camera info
 uniform mat4 u_inverse_viewprojection;
@@ -683,6 +685,7 @@ void main()
 {
 
     vec2 uv = gl_FragCoord.xy * u_res_inv;
+    float occlusion = texture(u_ssao_map, uv).r;
 
     vec4 albedo_spec = texture(u_gbuffer_color, uv);
     vec3 albedo = albedo_spec.rgb;
@@ -772,7 +775,7 @@ void main()
     }
     vec3 kS = fresnelSchlick(max(dot(N, V), 0.0), F0);
     vec3 kD = (1.0 - kS) * (1.0 - metalness);
-    vec3 ambient = u_ambient_light * (albedo * kD);
+    vec3 ambient = u_ambient_light * (albedo * kD) * occlusion;
 
     FragColor = vec4(final_color + ambient, 1.0);
 }
