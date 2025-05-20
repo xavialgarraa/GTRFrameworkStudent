@@ -1057,6 +1057,9 @@ void Renderer::renderSSAO(Camera* camera)
 	ssao_shader->setUniform("u_res_inv", Vector2f(1.0f / ssao_fbo->width, 1.0f / ssao_fbo->height));
 	ssao_shader->setUniform("u_sample_count", ssao_kernel_size);
 	ssao_shader->setUniform("u_sample_radius", ssao_radius);
+	
+	vec3 random_vec = vec3(1, 1, 1);
+	ssao_shader->setUniform("u_random_vector", random_vec);
 
 	vec3* ssao_pos = new vec3[ssao_samples.size()];
 
