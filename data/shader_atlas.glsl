@@ -756,6 +756,7 @@ void main()
     float ao = 1.0;
     if (u_ssao_enabled && u_ssao_to_lighting)
         ao = texture(u_ssao_texture, uv).r;
+    ao = pow(ao, 2.0);
 
     vec3 final_color = albedo * u_ambient_light * ao;
 
@@ -1052,6 +1053,7 @@ out vec4 FragColor;
 
 uniform sampler2D u_hdr_texture;
 uniform float u_exposure;
+uniform bool u_apply_gamma;
 
 void main()
 {
@@ -1062,6 +1064,10 @@ void main()
 
     // Exposure
     mapped = vec3(1.0) - exp(-mapped * u_exposure);
+
+    // Optional gamma correction
+    if (u_apply_gamma)
+        mapped = pow(mapped, vec3(1.0 / 2.2));
 
     FragColor = vec4(mapped, 1.0);
 }

@@ -45,7 +45,7 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	scene = nullptr;
 	skybox_cubemap = nullptr;
 
-	use_multipass = true;
+	use_multipass = false;
 
 
 	if (!GFX::Shader::LoadAtlas(shader_atlas_filename))
@@ -86,7 +86,7 @@ Renderer::Renderer(const char* shader_atlas_filename)
 
 	// 2.1 assignment 5
 	ssao_fbo = new GFX::FBO();
-	ssao_fbo->create(width, height, 1, GL_RGB, GL_UNSIGNED_BYTE, false);
+	ssao_fbo->create(width, height, 1, GL_RGB, GL_UNSIGNED_BYTE, true);
 	ssao_fbo->color_textures[0]->filename = "SSAO Texture";
 
 	// 3.1 assignment 6
@@ -283,6 +283,9 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	glClearColor(0, 0, 0, 1);
 	glClear(GL_COLOR_BUFFER_BIT);
 
+	hdr_fbo->unbind();
+	renderToTonemap();
+
 	// ssao_fbo->color_textures[0]->toViewport();
 
 	//render skybox
@@ -332,8 +335,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		// Disable blending for next frame
 		glDisable(GL_BLEND);
 	}
-	hdr_fbo->unbind();
-	renderToTonemap();
+	
 }
 
 void Renderer::renderSkybox(GFX::Texture* cubemap)
@@ -857,13 +859,11 @@ void Renderer::renderToTonemap()
 
 	shader->enable();
 	shader->setUniform("u_exposure", hdr_exposure);
+	shader->setUniform("u_apply_gamma", apply_gamma);
 	shader->setTexture("u_hdr_texture", hdr_fbo->color_textures[0], 0);
-
 	GFX::Mesh::getQuad()->render(GL_TRIANGLES);
 	shader->disable();
 }
-
-
 
 #ifndef SKIP_IMGUI
 
@@ -895,6 +895,7 @@ void Renderer::showUI()
 	ImGui::Checkbox("Apply SSAO to lighting", &ssao_apply_to_lighting);
 
 	ImGui::SliderFloat("HDR Exposure", &hdr_exposure, 0.1f, 5.0f);
+	ImGui::Checkbox("Apply Gamma Correction", &apply_gamma);
 }
 
 #else

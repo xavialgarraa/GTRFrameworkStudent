@@ -40,15 +40,16 @@ namespace SCN {
 		std::vector<vec3> ao_sample_points;
 		int ssao_sample_count = 32;
 		float ssao_radius = 0.05f;
-		bool ssao_compute_enabled = true;
-		bool ssao_apply_to_lighting = true;
+		bool ssao_compute_enabled = false;
+		bool ssao_apply_to_lighting = false;
 		GFX::Texture* ssao_noise_texture = nullptr;
 
 		std::vector<GFX::FBO*> shadow_fbos;
 
 		// variables for 6 part 3
 		GFX::FBO* hdr_fbo = nullptr;
-		float hdr_exposure = 1.0f;
+		float hdr_exposure = 0.2f;
+		bool apply_gamma = true;
 
 		GFX::Texture* skybox_cubemap;
 
