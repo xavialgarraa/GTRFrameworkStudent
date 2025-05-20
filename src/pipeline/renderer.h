@@ -60,6 +60,7 @@ namespace SCN {
 		bool use_hdr = false;
 		float exposure = 1.f;
 		bool use_ssao_plus = false;
+
 		bool apply_gamma = true;
 		bool use_aces = false;
 		enum ToneMappingOperator {
@@ -69,6 +70,11 @@ namespace SCN {
 		};
 
 		int tone_operator = TONE_REINHARD;
+
+		bool ssao_plus_deferred = false;
+
+		float ambient_intensity = 0.3f;
+
 
 		//updated every frame
 		Renderer(const char* shaders_atlas_filename );

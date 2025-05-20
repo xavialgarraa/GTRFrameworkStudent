@@ -191,14 +191,14 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	{
 		if (light_volume)
 		{
-			
+
 			copyDepthBuffer(gbuffer_fbo, lighting_fbo);
 
 			lighting_fbo->bind();
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			glClear(GL_COLOR_BUFFER_BIT);
 
 			glDisable(GL_BLEND);
-			glDepthMask(GL_FALSE); 
+			glDepthMask(GL_FALSE);
 			glDepthFunc(GL_LEQUAL);
 
 			//render skybox
@@ -217,7 +217,6 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 			// 9. Mostrar resultado final
 			lighting_fbo->color_textures[0]->toViewport();
-			
 		}
 		else if (use_ssao){
 			copyDepthBuffer(gbuffer_fbo, ssao_fbo);
@@ -251,6 +250,55 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 			ssao_fbo->color_textures[0]->toViewport();
 
 			//blurSSAOTexture();
+		}
+		else if (ssao_plus_deferred)
+		{
+			copyDepthBuffer(gbuffer_fbo, ssao_fbo);
+			if (use_ssao_plus)
+			{
+				generateSpherePoints(ssao_kernel_size, ssao_radius, true);
+
+			}
+			else {
+				generateSpherePoints(ssao_kernel_size, ssao_radius, false);
+
+			}
+
+			ssao_fbo->bind();
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+			glDisable(GL_BLEND);
+			glDepthMask(GL_FALSE);
+			glDepthFunc(GL_LEQUAL);
+
+			//render skybox
+			if (skybox_cubemap)
+				renderSkybox(skybox_cubemap);
+
+			renderSSAO(Camera::current);
+
+			// 8. Unbind lighting FBO
+			ssao_fbo->unbind();
+
+			// 9. Mostrar resultado final
+			ssao_fbo->color_textures[0]->toViewport();
+
+			//2.2
+			// Restaurar estado OpenGL
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+			glViewport(0, 0, gbuffer_fbo->width, gbuffer_fbo->height);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			glDepthMask(GL_TRUE);
+			glDepthFunc(GL_LESS);
+			glDisable(GL_BLEND);
+
+			//render skybox
+			if (skybox_cubemap)
+				renderSkybox(skybox_cubemap);
+
+			// Render simple pass
+			renderDeferredSinglePass();
+
 		}
 		else {
 			//2.2
@@ -739,7 +787,17 @@ void Renderer::renderDeferredSinglePass()
 	delete[] light_type;
 	delete[] shadow_mat;
 
-
+	// Bind SSAO texture if enabled
+	if (ssao_plus_deferred)
+	{
+		shader->setTexture("u_ssao_map", ssao_fbo->color_textures[0], texture_slots++);
+	}
+	else
+	{
+		// Bind a white 1x1 texture if SSAO is disabled, to avoid black screen
+		static GFX::Texture* white_texture = GFX::Texture::getWhiteTexture();
+		shader->setTexture("u_ssao_map", white_texture, texture_slots++);
+	}
 	//upload uniforms
 	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 	shader->setUniform("u_camera_position", camera->eye);
@@ -1117,6 +1175,11 @@ void Renderer::showUI()
 		ImGui::SliderFloat("SSAO Radius", &ssao_radius, 0.01f, 2.0f);
 		ImGui::SliderInt("SSAO Samples", &ssao_kernel_size, 1, 64);
 }
+
+	ImGui::Checkbox("SSAO + DEFERRED", &ssao_plus_deferred);
+	if (ssao_plus_deferred) {
+		ImGui::SliderFloat("Ambient Intensity", &ambient_intensity, 0.1f, 1.0f);
+	}
 
 	ImGui::Checkbox("HDR", &use_hdr);
 	if (use_hdr) {
