@@ -12,6 +12,7 @@ gbuffer_fill basic.vs gbuffer_fill.fs
 phong_deferred quad.vs deferred_single.fs
 light_volume light_volume.vs light_volume.fs
 deferred_ambient quad.vs deferred_ambient.fs
+ssao quad.vs ssao.fs
 
 \test.cs
 #version 430 core
@@ -973,4 +974,93 @@ float geometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
     float ggx1 = geometrySchlickGGX(NdotV, roughness);
     float ggx2 = geometrySchlickGGX(NdotL, roughness);
     return ggx1 * ggx2;
+}
+
+\ssao.fs
+#version 330 core
+
+uniform sampler2D u_gbuffer_depth;
+uniform sampler2D u_gbuffer_normal;
+uniform vec3 u_sample_pos[64];
+uniform int u_sample_count;
+uniform float u_sample_radius;
+uniform mat4 u_p_mat;
+uniform mat4 u_inv_p_mat;
+uniform vec2 u_res_inv;
+uniform int u_use_ssao_plus;
+
+in vec2 v_uv;
+out vec4 FragColor;
+
+vec3 viewPosFromDepth(float depth, vec2 texCoord) {
+    vec4 clipPos = vec4(texCoord * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 viewPos = u_inv_p_mat * clipPos;
+    return viewPos.xyz / viewPos.w;
+}
+
+void main()
+{
+    // Get depth and normal from GBuffer
+    float depth = texture(u_gbuffer_depth, v_uv).r;
+    vec3 normal = normalize(texture(u_gbuffer_normal, v_uv).xyz * 2.0 - 1.0);
+    
+    // Background (depth = 1.0) - no occlusion
+    if (depth >= 1.0) {
+        FragColor = vec4(1.0);
+        return;
+    }
+    
+    vec3 fragPos = viewPosFromDepth(depth, v_uv);
+    
+    // Generate random rotation using noise
+    vec3 randomVec = normalize(vec3(
+        fract(sin(dot(v_uv, vec2(12.9898, 78.233))) * 43758.5453),
+        fract(sin(dot(v_uv, vec2(39.346, 11.135))) * 43758.5453),
+        0.0
+    ));
+    
+    // Create TBN matrix to orient samples
+    vec3 tangent = normalize(randomVec - normal * dot(randomVec, normal));
+    vec3 bitangent = cross(normal, tangent);
+    mat3 TBN = mat3(tangent, bitangent, normal);
+    
+    // Calculate occlusion
+    float occlusion = 0.0;
+    for(int i = 0; i < u_sample_count; i++) {
+        // Get sample position in view space
+        vec3 samplePos = TBN * u_sample_pos[i]; // From tangent to view space
+        samplePos = fragPos + samplePos * u_sample_radius;
+        
+        // Project sample position to screen space
+        vec4 offset = vec4(samplePos, 1.0);
+        offset = u_p_mat * offset;
+        offset.xyz /= offset.w;
+        offset.xy = offset.xy * 0.5 + 0.5; // Transform to [0,1] range
+        
+        // Check if sample is outside screen
+        if(offset.x < 0.0 || offset.x > 1.0 || offset.y < 0.0 || offset.y > 1.0) {
+            continue;
+        }
+        
+        // Get sample depth from GBuffer
+        float sampleDepth = texture(u_gbuffer_depth, offset.xy).r;
+        vec3 sampleViewPos = viewPosFromDepth(sampleDepth, offset.xy);
+        
+        float rangeCheck = smoothstep(0.0, 1.0, u_sample_radius / abs(fragPos.z - sampleViewPos.z));
+        
+        if (u_use_ssao_plus == 1) {
+            // SSAO+: Only count samples in front of the surface
+            occlusion += (sampleViewPos.z >= samplePos.z ? 1.0 : 0.0) * rangeCheck;
+        } else {
+            // Regular SSAO: Compare view-space Z values
+            occlusion += (sampleViewPos.z <= samplePos.z ? 1.0 : 0.0) * rangeCheck;
+        }
+    }
+    
+    // Normalize and invert occlusion
+    occlusion = 1.0 - (occlusion / float(u_sample_count));
+    
+    occlusion = pow(occlusion, 2.0);
+    
+    FragColor = vec4(occlusion, occlusion, occlusion, 1.0);
 }

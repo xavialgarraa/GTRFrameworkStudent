@@ -215,13 +215,55 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 			
 		}
 		else if (use_ssao){
-			ssao_samples = generateSpherePoints(ssao_kernel_size, ssao_radius , true);
-			renderSSAOPass();
-			blurSSAOTexture();
+			copyDepthBuffer(gbuffer_fbo, ssao_fbo);
+			if (use_ssao_plus)
+			{
+				generateSpherePoints(ssao_kernel_size, ssao_radius, true);
+
+			}
+			else {
+				generateSpherePoints(ssao_kernel_size, ssao_radius, false);
+
+			}
+
+			ssao_fbo->bind();
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+			glDisable(GL_BLEND);
+			glDepthMask(GL_FALSE);
+			glDepthFunc(GL_LEQUAL);
+
+			//render skybox
+			if (skybox_cubemap)
+				renderSkybox(skybox_cubemap);
+
+			renderSSAO(Camera::current);
+		
+			// 8. Unbind lighting FBO
+			ssao_fbo->unbind();
+
+			// 9. Mostrar resultado final
+			ssao_fbo->color_textures[0]->toViewport();
+
+			//blurSSAOTexture();
 		}
 		else {
 			//2.2
+			// Restaurar estado OpenGL
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+			glViewport(0, 0, gbuffer_fbo->width, gbuffer_fbo->height);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			glDepthMask(GL_TRUE);
+			glDepthFunc(GL_LESS);
+			glDisable(GL_BLEND);
+
+			//render skybox
+			if (skybox_cubemap)
+				renderSkybox(skybox_cubemap);
+
+			// Render simple pass
 			renderDeferredSinglePass();
+
 		}
 
 		// Enable blending for transparent objects
@@ -916,7 +958,7 @@ void Renderer::renderDeferredAmbientPass() {
 
 }
 
-std::vector<vec3> generateSpherePoints(int num, float radius, bool hemi) {
+void Renderer::generateSpherePoints(int num, float radius, bool hemi) {
 	std::vector<vec3> points;
 	points.resize(num);
 
@@ -938,16 +980,17 @@ std::vector<vec3> generateSpherePoints(int num, float radius, bool hemi) {
 		points[i] = p;
 	}
 
-	return points;
+	ssao_samples = points;
 }
 
 void Renderer::renderSSAO(Camera* camera)
 {
 	GFX::Shader* ssao_shader = GFX::Shader::Get("ssao");
+	GFX::Mesh* quad = GFX::Mesh::getQuad();
+
 
 	if (!use_ssao || !ssao_shader) return;
 
-	ssao_fbo->bind();
 	glViewport(0, 0, ssao_fbo->width, ssao_fbo->height);
 	glClearColor(1.0, 1.0, 1.0, 1.0);
 	glClear(GL_COLOR_BUFFER_BIT);
@@ -957,7 +1000,15 @@ void Renderer::renderSSAO(Camera* camera)
 	ssao_shader->setUniform("u_res_inv", Vector2f(1.0f / ssao_fbo->width, 1.0f / ssao_fbo->height));
 	ssao_shader->setUniform("u_sample_count", ssao_kernel_size);
 	ssao_shader->setUniform("u_sample_radius", ssao_radius);
-	ssao_shader->setUniform3Array("u_sample_pos", (float*)&ssao_samples[0], ssao_kernel_size);
+
+	vec3* ssao_pos = new vec3[ssao_samples.size()];
+
+	for (int i = 0; i < ssao_samples.size(); i++)
+	{
+		ssao_pos[i] = ssao_samples[i];
+
+	}
+	ssao_shader->setUniform3Array("u_sample_pos", (float*)ssao_pos, min(ssao_samples.size(), 64));
 	ssao_shader->setUniform("u_use_ssao_plus", use_ssao_plus ? 1 : 0);
 
 	ssao_shader->setTexture("u_gbuffer_normal", gbuffer_fbo->color_textures[1], 1);
@@ -975,12 +1026,14 @@ void Renderer::renderSSAO(Camera* camera)
 	
 	glDisable(GL_DEPTH_TEST);
 	// Draw quad
-	GFX::Mesh::getQuad()->render(GL_TRIANGLES);
+	quad->render(GL_TRIANGLES);
 	
 	glEnable(GL_DEPTH_TEST);
 
 	ssao_shader->disable();
-	ssao_fbo->unbind();
+
+	delete[] ssao_pos;
+
 }
 
 
