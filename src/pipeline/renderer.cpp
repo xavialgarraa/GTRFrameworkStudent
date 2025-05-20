@@ -67,14 +67,12 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	//Assigment 2.1 Generate G-Buffer
 	gbuffer_fbo = new GFX::FBO();
 
-	// Hardcode to test - luego reemplazar
 	Vector2ui size = CORE::getWindowSize();
 	int width = size.x;
 	int height = size.y;
 
 	gbuffer_fbo->create(width, height, 2, GL_RGBA, GL_UNSIGNED_BYTE, true);
 
-	// Name the textures for debugging
 	gbuffer_fbo->color_textures[0]->filename = "G-Buffer Albedo";
 	gbuffer_fbo->color_textures[1]->filename = "G-Buffer Normals";
 	gbuffer_fbo->depth_texture->filename = "G-Buffer Depth";
@@ -726,8 +724,6 @@ void Renderer::renderDeferredSinglePass()
 	Camera* camera = Camera::current;
 	int texture_slots = 0;
 
-	// A quad is usually a mesh of a plane,
-	// always aligned with you view
 	GFX::Mesh* quad = GFX::Mesh::getQuad();
 
 	GFX::Shader* shader = NULL;
@@ -735,7 +731,6 @@ void Renderer::renderDeferredSinglePass()
 
 	assert(glGetError() == GL_NO_ERROR);
 
-	//no shader? then nothing to render
 	if (!shader)
 		return;
 
@@ -835,8 +830,7 @@ void Renderer::renderDirectionalLights()
 	Camera* camera = Camera::current;
 	int texture_slots = 0;
 
-	// A quad is usually a mesh of a plane,
-	// always aligned with you view
+	
 	GFX::Mesh* quad = GFX::Mesh::getQuad();
 
 	GFX::Shader* shader = NULL;
@@ -844,7 +838,6 @@ void Renderer::renderDirectionalLights()
 
 	assert(glGetError() == GL_NO_ERROR);
 
-	//no shader? then nothing to render
 	if (!shader)
 		return;
 
