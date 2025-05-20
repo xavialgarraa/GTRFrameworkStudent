@@ -13,6 +13,7 @@ phong_deferred quad.vs deferred_single.fs
 light_volume light_volume.vs light_volume.fs
 deferred_ambient quad.vs deferred_ambient.fs
 ssao quad.vs ssao.fs
+tonemap quad.vs tonemap.fs
 
 \test.cs
 #version 430 core
@@ -1063,4 +1064,31 @@ void main()
     occlusion = pow(occlusion, 2.0);
     
     FragColor = vec4(occlusion, occlusion, occlusion, 1.0);
+}
+
+\tonemap.fs
+#version 330 core
+
+in vec2 v_uv;
+out vec4 FragColor;
+
+uniform sampler2D u_hdr_texture;
+uniform float u_exposure;
+uniform bool u_apply_gamma;
+
+void main()
+{
+    vec3 hdr_color = texture(u_hdr_texture, v_uv).rgb;
+
+    // Reinhard tone mapping
+    vec3 mapped = hdr_color / (hdr_color + vec3(1.0));
+
+    // Exposure mapping
+    mapped = vec3(1.0) - exp(-mapped * u_exposure);
+
+    // Optional gamma correction (gamma 2.2)
+    if (u_apply_gamma)
+        mapped = pow(mapped, vec3(1.0 / 2.2));
+
+    FragColor = vec4(mapped, 1.0);
 }

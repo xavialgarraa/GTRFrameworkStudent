@@ -35,6 +35,8 @@ namespace SCN {
 		GFX::FBO* gbuffer_fbo = nullptr;
 		bool use_deferred = false;
 
+		GFX::FBO* hdr_fbo = nullptr;
+
 		std::vector<GFX::FBO*> shadow_fbos;
 
 		GFX::Texture* skybox_cubemap;
@@ -56,8 +58,9 @@ namespace SCN {
 		int ssao_kernel_size = 32;
 		bool use_ssao = false;
 		bool use_hdr = false;
-		float exposure = 3.f;
+		float exposure = 1.f;
 		bool use_ssao_plus = false;
+		bool apply_gamma = true;
 
 		//updated every frame
 		Renderer(const char* shaders_atlas_filename );
@@ -98,9 +101,7 @@ namespace SCN {
 
 		void renderSSAO(Camera* camera);
 
-
-
-
+		void renderToTonemap();
 
 		void renderLightVolumes(Camera* camera);
 

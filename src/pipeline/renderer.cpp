@@ -88,6 +88,11 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	ssao_fbo = new GFX::FBO();
 	ssao_fbo->create(width, height, 1, GL_RGB, GL_UNSIGNED_BYTE, false);
 	ssao_fbo->color_textures[0]->filename = "SSAO Texture";
+
+	// 3.1 assignment 6
+	hdr_fbo = new GFX::FBO();
+	hdr_fbo->create(width, height, 1, GL_RGB, GL_UNSIGNED_BYTE, false);
+	hdr_fbo->color_textures[0]->filename = "HDR Result";
 }
 
 
@@ -249,21 +254,17 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		}
 		else {
 			//2.2
-			// Restaurar estado OpenGL
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-			glViewport(0, 0, gbuffer_fbo->width, gbuffer_fbo->height);
+			hdr_fbo->bind();
+			glClearColor(0, 0, 0, 1);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-			glDepthMask(GL_TRUE);
-			glDepthFunc(GL_LESS);
-			glDisable(GL_BLEND);
 
-			//render skybox
-			if (skybox_cubemap)
-				renderSkybox(skybox_cubemap);
-
-			// Render simple pass
+			// Render scene (deferred simple pass)
 			renderDeferredSinglePass();
 
+			hdr_fbo->unbind();
+
+			// Tone mapping final al quad
+			renderToTonemap();
 		}
 
 		// Enable blending for transparent objects
@@ -1036,6 +1037,20 @@ void Renderer::renderSSAO(Camera* camera)
 
 }
 
+void Renderer::renderToTonemap()
+{
+	GFX::Shader* shader = GFX::Shader::Get("tonemap");
+	if (!shader) return;
+
+	shader->enable();
+	shader->setUniform("u_exposure", exposure);
+	shader->setTexture("u_hdr_texture", hdr_fbo->color_textures[0], 0);
+	shader->setUniform("u_apply_gamma", apply_gamma);
+
+	GFX::Mesh::getQuad()->render(GL_TRIANGLES);
+	shader->disable();
+}
+
 
 void Renderer::copyDepthBuffer(GFX::FBO* source, GFX::FBO* dest) {
 	glBindFramebuffer(GL_READ_FRAMEBUFFER, source->fbo_id);
@@ -1100,6 +1115,7 @@ void Renderer::showUI()
 	ImGui::Checkbox("HDR", &use_hdr);
 	if (use_hdr) {
 		ImGui::SliderFloat("Exposure", &exposure, 0.1f, 5.0f);
+		ImGui::Checkbox("Apply Gamma Correction", &apply_gamma);
 	}
 	
 }
