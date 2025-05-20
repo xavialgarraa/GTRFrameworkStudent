@@ -1046,6 +1046,7 @@ void Renderer::renderToTonemap()
 	shader->setUniform("u_exposure", exposure);
 	shader->setTexture("u_hdr_texture", hdr_fbo->color_textures[0], 0);
 	shader->setUniform("u_apply_gamma", apply_gamma);
+	shader->setUniform("u_tone_operator", tone_operator);
 
 	GFX::Mesh::getQuad()->render(GL_TRIANGLES);
 	shader->disable();
@@ -1104,6 +1105,11 @@ void Renderer::showUI()
 		use_deferred = true;
 	}
 
+	if (use_deferred == false) {
+		use_ssao = false;
+		use_hdr = false;
+	}
+
 	// In showUI()
 	ImGui::Checkbox("SSAO", &use_ssao);
 	if (use_ssao) {
@@ -1114,10 +1120,11 @@ void Renderer::showUI()
 
 	ImGui::Checkbox("HDR", &use_hdr);
 	if (use_hdr) {
-		ImGui::SliderFloat("Exposure", &exposure, 0.1f, 5.0f);
+		const char* tone_ops[] = { "Linear", "Reinhard", "ACES" };
+		ImGui::Combo("Tone Mapping", &tone_operator, tone_ops, IM_ARRAYSIZE(tone_ops));
+		ImGui::SliderFloat("HDR Exposure", &exposure, 0.1f, 5.0f);
 		ImGui::Checkbox("Apply Gamma Correction", &apply_gamma);
 	}
-	
 }
 
 #else

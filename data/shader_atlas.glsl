@@ -1075,18 +1075,37 @@ out vec4 FragColor;
 uniform sampler2D u_hdr_texture;
 uniform float u_exposure;
 uniform bool u_apply_gamma;
+uniform int u_tone_operator;
+
+vec3 ACESFilm(vec3 x)
+{
+    const float a = 2.51;
+    const float b = 0.03;
+    const float c = 2.43;
+    const float d = 0.59;
+    const float e = 0.14;
+    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
 
 void main()
 {
-    vec3 hdr_color = texture(u_hdr_texture, v_uv).rgb;
+    vec3 hdr = texture(u_hdr_texture, v_uv).rgb;
+    vec3 mapped;
 
-    // Reinhard tone mapping
-    vec3 mapped = hdr_color / (hdr_color + vec3(1.0));
+    if (u_tone_operator == 0) {
+        // Linear tone mapping (identity)
+        mapped = hdr * u_exposure;
+    }
+    else if (u_tone_operator == 1) {
+        // Reinhard + exposure
+        mapped = vec3(1.0) - exp(-hdr * u_exposure);
+        mapped = mapped / (mapped + vec3(1.0));
+    }
+    else {
+        // ACES Filmic
+        mapped = ACESFilm(hdr * u_exposure);
+    }
 
-    // Exposure mapping
-    mapped = vec3(1.0) - exp(-mapped * u_exposure);
-
-    // Optional gamma correction (gamma 2.2)
     if (u_apply_gamma)
         mapped = pow(mapped, vec3(1.0 / 2.2));
 

@@ -61,6 +61,14 @@ namespace SCN {
 		float exposure = 1.f;
 		bool use_ssao_plus = false;
 		bool apply_gamma = true;
+		bool use_aces = false;
+		enum ToneMappingOperator {
+			TONE_LINEAR = 0,
+			TONE_REINHARD = 1,
+			TONE_ACES = 2
+		};
+
+		int tone_operator = TONE_REINHARD;
 
 		//updated every frame
 		Renderer(const char* shaders_atlas_filename );
