@@ -34,7 +34,7 @@ namespace SCN {
 		GFX::FBO* gbuffer_fbo = nullptr;
 		bool use_deferred = false;
 
-		// variables for assignment 6
+		// variables for assignment 6 part 2
 		GFX::FBO* ssao_fbo = nullptr;
 		GFX::Shader* ssao_shader = nullptr;
 		std::vector<vec3> ao_sample_points;
@@ -45,6 +45,10 @@ namespace SCN {
 		GFX::Texture* ssao_noise_texture = nullptr;
 
 		std::vector<GFX::FBO*> shadow_fbos;
+
+		// variables for 6 part 3
+		GFX::FBO* hdr_fbo = nullptr;
+		float hdr_exposure = 1.0f;
 
 		GFX::Texture* skybox_cubemap;
 
@@ -85,6 +89,8 @@ namespace SCN {
 		void renderLightVolumes(Camera* camera);
 
 		void renderSSAO(Camera* camera);
+		
+		void renderToTonemap();
 
 		void showUI();
 	};

@@ -88,6 +88,11 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	ssao_fbo = new GFX::FBO();
 	ssao_fbo->create(width, height, 1, GL_RGB, GL_UNSIGNED_BYTE, false);
 	ssao_fbo->color_textures[0]->filename = "SSAO Texture";
+
+	// 3.1 assignment 6
+	hdr_fbo = new GFX::FBO();
+	hdr_fbo->create(width, height, 1, GL_RGB, GL_UNSIGNED_BYTE, true);
+	hdr_fbo->color_textures[0]->filename = "HDR Output";
 }
 
 std::vector<vec3> generateSpherePoints(int num, float radius, bool hemi) {
@@ -273,23 +278,17 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 	gbuffer_fbo->depth_texture->copyTo(lighting_fbo->depth_texture);
 
-	lighting_fbo->bind();
+	hdr_fbo->bind();
 
 	glClearColor(0, 0, 0, 1);
 	glClear(GL_COLOR_BUFFER_BIT);
 
-	lighting_fbo->unbind();
-
-	ssao_fbo->color_textures[0]->toViewport();
+	// ssao_fbo->color_textures[0]->toViewport();
 
 	//render skybox
-	if (skybox_cubemap)
-		renderSkybox(skybox_cubemap);
+	if (skybox_cubemap) renderSkybox(skybox_cubemap);
 
-	if (use_deferred)
-	{
-		renderLightVolumes(camera);
-	}
+	// if (use_deferred) renderLightVolumes(camera);
 
 	// Separate opaque and transparent objects
 	std::vector<sDrawCommand> opaque_commands;
@@ -304,10 +303,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		}
 	}
 
-	if (use_deferred)
-	{
-		renderDeferredSinglePass();
-	}
+	if (use_deferred) renderDeferredSinglePass();
 	else {
 		// Sort opaque commands front-to-back
 		std::sort(opaque_commands.begin(), opaque_commands.end(), [](const sDrawCommand& a, const sDrawCommand& b) {
@@ -336,8 +332,8 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		// Disable blending for next frame
 		glDisable(GL_BLEND);
 	}
-	
-	
+	hdr_fbo->unbind();
+	renderToTonemap();
 }
 
 void Renderer::renderSkybox(GFX::Texture* cubemap)
@@ -854,6 +850,20 @@ void Renderer::renderLightVolumes(Camera* camera)
 	}
 }
 
+void Renderer::renderToTonemap()
+{
+	GFX::Shader* shader = GFX::Shader::Get("tonemap");
+	if (!shader) return;
+
+	shader->enable();
+	shader->setUniform("u_exposure", hdr_exposure);
+	shader->setTexture("u_hdr_texture", hdr_fbo->color_textures[0], 0);
+
+	GFX::Mesh::getQuad()->render(GL_TRIANGLES);
+	shader->disable();
+}
+
+
 
 #ifndef SKIP_IMGUI
 
@@ -883,6 +893,8 @@ void Renderer::showUI()
 
 	ImGui::Checkbox("Compute SSAO", &ssao_compute_enabled);
 	ImGui::Checkbox("Apply SSAO to lighting", &ssao_apply_to_lighting);
+
+	ImGui::SliderFloat("HDR Exposure", &hdr_exposure, 0.1f, 5.0f);
 }
 
 #else
