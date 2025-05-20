@@ -992,9 +992,6 @@ uniform mat4 u_p_mat;
 uniform mat4 u_inv_p_mat;
 uniform vec2 u_res_inv;
 uniform int u_use_ssao_plus;
-uniform vec3 u_random_vector;
-uniform sampler2D u_noise;
-uniform vec2 u_noise_scale;
 
 in vec2 v_uv;
 out vec4 FragColor;
@@ -1010,8 +1007,6 @@ void main()
     // Get depth and normal from GBuffer
     float depth = texture(u_gbuffer_depth, v_uv).r;
     vec3 normal = normalize(texture(u_gbuffer_normal, v_uv).xyz * 2.0 - 1.0);
-    vec2 uv = v_uv + 0.5 * u_res_inv;
-    vec3 u_random_vector = texture(u_noise, uv * u_noise_scale).xyz * 2.0 - 1.0;
     
     // Background (depth = 1.0) - no occlusion
     if (depth >= 1.0) {
@@ -1021,8 +1016,15 @@ void main()
     
     vec3 fragPos = viewPosFromDepth(depth, v_uv);
     
+    // Generate random rotation using noise
+    vec3 randomVec = normalize(vec3(
+        fract(sin(dot(v_uv, vec2(12.9898, 78.233))) * 43758.5453),
+        fract(sin(dot(v_uv, vec2(39.346, 11.135))) * 43758.5453),
+        0.0
+    ));
+    
     // Create TBN matrix to orient samples
-    vec3 tangent = normalize(u_random_vector - normal * dot(u_random_vector, normal));
+    vec3 tangent = normalize(randomVec - normal * dot(randomVec, normal));
     vec3 bitangent = cross(normal, tangent);
     mat3 TBN = mat3(tangent, bitangent, normal);
     
