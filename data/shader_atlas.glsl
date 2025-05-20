@@ -618,6 +618,7 @@ uniform sampler2D u_gbuffer_normal;
 uniform sampler2D u_gbuffer_depth;
 
 uniform sampler2D u_ssao_texture;
+uniform bool u_ssao_to_lighting;
 uniform bool u_ssao_enabled;
 
 // Camera info
@@ -751,7 +752,10 @@ void main()
     vec3 world_position = reconstructPosition(uv, depth);
     vec3 V = normalize(u_camera_position - world_position);
 
-    float ao = u_ssao_enabled ? texture(u_ssao_texture, uv).r : 1.0;
+    float ao = 1.0;
+    if (u_ssao_enabled && u_ssao_to_lighting)
+        ao = texture(u_ssao_texture, uv).r;
+
     vec3 final_color = albedo * u_ambient_light * ao;
 
     for(int i = 0; i < u_light_count && i < MAX_LIGHTS; i++) {
@@ -976,6 +980,8 @@ uniform sampler2D u_gbuffer_normal;
 uniform vec3 u_sample_pos[64];
 uniform int u_sample_count;
 uniform float u_sample_radius;
+uniform sampler2D u_noise_texture;
+uniform vec2 u_noise_scale;
 
 // Matrius
 uniform mat4 u_p_mat;
@@ -1000,10 +1006,12 @@ void main()
     vec3 normal = texture(u_gbuffer_normal, v_uv).xyz * 2.0 - 1.0;
     normal = normalize(normal);
 
-    // Build TBN (Tangent, Bitangent, Normal)
-    vec3 tangent = normalize(cross(normal, vec3(0.0, 1.0, 0.0)));
-    if (length(tangent) < 0.01)
-        tangent = normalize(cross(normal, vec3(1.0, 0.0, 0.0)));
+    // Sample random rotation vector
+    vec2 noise_uv = v_uv * u_noise_scale;
+    vec3 random_vec = texture(u_noise_texture, noise_uv).xyz;
+
+    // Recalcular TBN amb el random vector
+    vec3 tangent = normalize(random_vec - normal * dot(random_vec, normal));
     vec3 bitangent = cross(normal, tangent);
     mat3 TBN = mat3(tangent, bitangent, normal);
 

@@ -40,7 +40,9 @@ namespace SCN {
 		std::vector<vec3> ao_sample_points;
 		int ssao_sample_count = 32;
 		float ssao_radius = 0.05f;
-		bool ssao_enabled = true;
+		bool ssao_compute_enabled = true;
+		bool ssao_apply_to_lighting = true;
+		GFX::Texture* ssao_noise_texture = nullptr;
 
 		std::vector<GFX::FBO*> shadow_fbos;
 

@@ -127,6 +127,29 @@ void Renderer::setupScene()
 		ssao_shader = GFX::Shader::Get("ssao_pass");
 
 	ao_sample_points = generateSpherePoints(ssao_sample_count, 1.0f, true);
+
+	if (!ssao_noise_texture)
+	{
+		int size = 4;
+		std::vector<float> noise_data(size * size * 3);
+
+		for (int i = 0; i < size * size; ++i)
+		{
+			float angle = float(rand()) / RAND_MAX * 2.0f * PI;
+			noise_data[i * 3 + 0] = cos(angle);
+			noise_data[i * 3 + 1] = sin(angle);
+			noise_data[i * 3 + 2] = 0.0f; // z = 0
+		}
+
+		ssao_noise_texture = new GFX::Texture();
+		ssao_noise_texture->create(size, size, GL_RGB, GL_FLOAT, &noise_data[0]);
+
+		ssao_noise_texture->bind();
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	}
 }
 
 // Updated parseNodes function to include frustum culling
@@ -187,7 +210,7 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 
 void Renderer::renderSSAO(Camera* camera)
 {
-	if (!ssao_enabled || !ssao_shader) return;
+	if (!ssao_compute_enabled || !ssao_shader) return;
 
 	ssao_fbo->bind();
 	glClearColor(1.0, 1.0, 1.0, 1.0);
@@ -200,6 +223,9 @@ void Renderer::renderSSAO(Camera* camera)
 	ssao_shader->setUniform("u_sample_radius", ssao_radius);
 	ssao_shader->setUniform3Array("u_sample_pos", (float*)&ao_sample_points[0], ssao_sample_count);
 	ssao_shader->setTexture("u_gbuffer_normal", gbuffer_fbo->color_textures[1], 1);
+
+	ssao_shader->setTexture("u_noise_texture", ssao_noise_texture, 2); // slot 2
+	ssao_shader->setUniform("u_noise_scale", Vector2f(float(ssao_fbo->width) / 4.0f, float(ssao_fbo->height) / 4.0f));
 
 	// Bind depth texture
 	ssao_shader->setTexture("u_gbuffer_depth", gbuffer_fbo->depth_texture, 0);
@@ -242,7 +268,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 	renderToGBuffer();
 
-	if (ssao_enabled)
+	if (ssao_compute_enabled)
 		renderSSAO(camera);
 
 	gbuffer_fbo->depth_texture->copyTo(lighting_fbo->depth_texture);
@@ -711,7 +737,9 @@ void Renderer::renderDeferredSinglePass()
 	shader->setUniform3Array("u_light_dir", (float*)light_dir, min(light_list.size(), 10));
 	shader->setUniform2Array("u_light_cone", (float*)cone_info, min(light_list.size(), 10));
 	shader->setUniform("u_ambient_light", scene->ambient_light);
-	shader->setUniform("u_ssao_enabled", ssao_enabled);
+	shader->setUniform("u_ssao_enabled", ssao_compute_enabled);
+	shader->setUniform("u_ssao_to_lighting", ssao_apply_to_lighting);
+	shader->setTexture("u_ssao_texture", ssao_fbo->color_textures[0], texture_slots++);
 
 	// We uploaded all the shadow maps manual
 	shader->setUniform("u_shadow_map_0", (shadow_fbos[0]->depth_texture), texture_slots++); //SPOT
@@ -843,8 +871,6 @@ void Renderer::showUI()
 	{
 		use_multipass = false;
 	}
-
-	ImGui::Checkbox("Enable SSAO", &ssao_enabled);
 	
 	static int last_sample_count = ssao_sample_count;
 	ImGui::SliderInt("SSAO Samples", &ssao_sample_count, 1, 64);
@@ -854,6 +880,9 @@ void Renderer::showUI()
 		ao_sample_points = generateSpherePoints(ssao_sample_count, 1.0f, true);
 		last_sample_count = ssao_sample_count;
 	}
+
+	ImGui::Checkbox("Compute SSAO", &ssao_compute_enabled);
+	ImGui::Checkbox("Apply SSAO to lighting", &ssao_apply_to_lighting);
 }
 
 #else
