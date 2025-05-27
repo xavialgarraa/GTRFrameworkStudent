@@ -45,7 +45,9 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	scene = nullptr;
 	skybox_cubemap = nullptr;
 
-	use_multipass = true;
+	scene_blur_object = false;
+	frecuencia = 0.5f;
+	amplitud = -0.5f;
 
 
 	if (!GFX::Shader::LoadAtlas(shader_atlas_filename))
@@ -159,11 +161,20 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 		if (entity->name == "car1")
 		{
 			car1 = ((Node*)&entity->root);
+			motion_data[car1].prev_model = car1->model;
+			motion_data[car1].current_model = car1->model;
+			//Initial Position
+			
+
+
 		}
 		
 		if (entity->name == "car2")
 		{
 			car2 = ((Node*)&entity->root);
+			motion_data[car2].prev_model = car2->model;
+			motion_data[car2].current_model = car2->model;
+			car2->model._41 = -2.3f;
 		}
 	}
 }
@@ -181,9 +192,16 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 	renderShadowMap(scene); // 3.2.2 ASSIGNMENT 3
 
-	//Call update function
-	float dt = CORE::getTime();
-	//update(dt);
+	if (scene_blur_object)
+	{
+		//Call update function
+		float dt = CORE::getTime();
+
+		dt /= 1000.f;
+
+		update(dt);
+	}
+	
 
 	//set the clear color (the background color)
 	glClearColor(scene->background_color.x, scene->background_color.y, scene->background_color.z, 1.0);
@@ -388,7 +406,21 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 }
 
 void Renderer::update(float dt) {
+	//Car1
+	motion_data[car1].prev_model = car1->model;
+	Matrix44 model1;
+	model1 = car1->model;
+	/*float z1 = model1._43 * sinf(2.0f * M_PI * 0.5f * dt);
+	model1._43 = z1;
+	car1->model = model1;*/
+	motion_data[car1].current_model = car1->model;
 
+	motion_data[car2].prev_model = car2->model;
+	Matrix44 model2;
+	model2 = car2->model;
+	float z1 = amplitud + 2.5f * sinf(2.0f * M_PI * frecuencia * dt);
+	car2->model._43 = z1;
+	motion_data[car2].current_model = car2->model;
 }
 
 void Renderer::renderSkybox(GFX::Texture* cubemap)
@@ -441,177 +473,104 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	Camera* camera = Camera::current;
 	glEnable(GL_DEPTH_TEST);
 
-	if (use_multipass)
-	{
-		// 1. Ambient Pass
-		GFX::Shader* ambient_shader = GFX::Shader::Get("phong_multipass_ambient");
-		if (ambient_shader)
-		{
-			ambient_shader->enable();
-
-			material->bind(ambient_shader);
-			ambient_shader->setUniform("u_model", model);
-			ambient_shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
-			ambient_shader->setUniform("u_camera_position", camera->eye);
-			ambient_shader->setUniform("u_ambient_light", scene->ambient_light);
-			ambient_shader->setUniform("u_alpha_cutoff", material->alpha_cutoff);
-
-			if (material->alpha_mode == SCN::eAlphaMode::BLEND) {
-				glDepthMask(GL_FALSE);
-				glEnable(GL_BLEND);
-				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-			}
-			else {
-				glDepthMask(GL_TRUE);
-				glDisable(GL_BLEND);
-			}
-
-			mesh->render(GL_TRIANGLES);
-			ambient_shader->disable();
-		}
-
-		// 2. Light Pass
-		if (material->alpha_mode != SCN::eAlphaMode::BLEND) {
-			GFX::Shader* light_shader = GFX::Shader::Get("phong_multipass_light");
-			if (light_shader && !light_list.empty())
-			{
-				light_shader->enable();
-
-				material->bind(light_shader);
-				light_shader->setUniform("u_model", model);
-				light_shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
-				light_shader->setUniform("u_camera_position", camera->eye);
-				light_shader->setUniform("u_shininess", 1.0f - material->roughness_factor);
-				light_shader->setUniform("u_alpha_cutoff", material->alpha_cutoff);
-
-				// Additive blending
-				glEnable(GL_BLEND);
-				glBlendFunc(GL_ONE, GL_ONE);
-				glDepthFunc(GL_EQUAL);
-				glDepthMask(GL_FALSE);
-
-				for (LightEntity* light : light_list)
-				{
-					light_shader->setUniform("u_light_pos", light->root.getGlobalMatrix().getTranslation());
-					light_shader->setUniform("u_light_color", light->color);
-					light_shader->setUniform("u_light_intensity", light->intensity);
-					light_shader->setUniform("u_light_type", int(light->light_type));
-					light_shader->setUniform("u_light_dir", light->root.model.frontVector());
-					light_shader->setUniform("u_light_cone", light->cone_info);
-
-					mesh->render(GL_TRIANGLES);
-				}
-
-				light_shader->disable();
-
-				glDepthFunc(GL_LESS);
-				glDepthMask(GL_TRUE);
-				glDisable(GL_BLEND);
-			}
-		}
-
-		glPolygonMode(GL_FRONT_AND_BACK, render_wireframe ? GL_LINE : GL_FILL);
-	}
-	else {
+	
 
 		// Single Pass:
 	//chose a shader based on material properties
-		GFX::Shader* shader = NULL;
-		shader = GFX::Shader::Get("phong");
+	GFX::Shader* shader = NULL;
+	shader = GFX::Shader::Get("phong");
 
-		assert(glGetError() == GL_NO_ERROR);
+	assert(glGetError() == GL_NO_ERROR);
 
-		//no shader? then nothing to render
-		if (!shader)
-			return;
-		shader->enable();
-
-
-
-		material->bind(shader);
-		//shader->setUniform("u_shininess", 1.0f - material->roughness_factor); // Convert roughness to shininess
-
-		shader->setUniform("u_shininess", material->shininess); // Convert roughness to shininess
-
-		//send lights
-		vec3* light_pos = new vec3[light_list.size()];
-		vec3* light_color = new vec3[light_list.size()];
-		float* light_int = new float[light_list.size()];
-		vec3* light_dir = new vec3[light_list.size()];
-		int* light_type = new int[light_list.size()];
-		vec2* cone_info = new vec2[light_list.size()];
-		Matrix44* shadow_mat = new Matrix44[light_list.size()];
-
-		int i = 0;
-
-		for (LightEntity* light : light_list) {
-			light_pos[i] = light->root.getGlobalMatrix().getTranslation();
-			light_int[i] = light->intensity;
-			light_color[i] = light->color;
-			light_dir[i] = light->root.model.frontVector();
-			light_type[i] = light->light_type;
-			cone_info[i] = light->cone_info;
-			shadow_mat[i] = light->view_projection;
-			i++;
-		}
-
-		shader->setUniform("u_numShadows", (int)min(light_list.size(), 10));
-		shader->setUniform("u_bias", shadow_bias);
-		shader->setUniform("u_light_count", (int)min(light_list.size(), 10));
-		shader->setUniform3Array("u_light_pos", (float*)light_pos, min(light_list.size(), 10));
-		shader->setUniform3Array("u_light_color", (float*)light_color, min(light_list.size(), 10));
-		shader->setUniform1Array("u_light_intensity", light_int, min(light_list.size(), 10));
-		shader->setUniform1Array("u_light_type", (int*)light_type, min(light_list.size(), 10));
-		shader->setUniform3Array("u_light_dir", (float*)light_dir, min(light_list.size(), 10));
-		shader->setUniform2Array("u_light_cone", (float*)cone_info, min(light_list.size(), 10));
-		shader->setUniform("u_ambient_light", scene->ambient_light);
-
-		// We uploaded all the shadow maps manual
-		shader->setUniform("u_shadow_map_0", (shadow_fbos[0]->depth_texture), 2); //SPOT
-		//shader->setUniform("u_shadow_map_1", (shadow_fbos[1]->depth_texture), 3);
-		//shader->setUniform("u_shadow_map_2", (shadow_fbos[2]->depth_texture), 4);
-		shader->setUniform("u_shadow_map_3", (shadow_fbos[3]->depth_texture), 5); //DIRECTIONAL
-
-		shader->setUniform("u_shadow_matrix_0", shadow_mat[0]); //SPOT
-		//shader->setUniform("u_shadow_matrix_1", shadow_mat[1]);
-		//shader->setUniform("u_shadow_matrix_2", shadow_mat[2]);
-		shader->setUniform("u_shadow_matrix_3", shadow_mat[3]); //DIRECTIONAL
-
-		delete[] light_pos;
-		delete[] light_color;
-		delete[] light_int;
-		delete[] light_dir;
-		delete[] cone_info;
-		delete[] light_type;
-		delete[] shadow_mat;
-
-
-		//upload uniforms
-		shader->setUniform("u_model", model);
-		shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
-		shader->setUniform("u_camera_position", camera->eye);
+	//no shader? then nothing to render
+	if (!shader)
+		return;
+	shader->enable();
 
 
 
-		// Upload time, for cool shader effects
-		float t = getTime();
-		shader->setUniform("u_time", t);
+	material->bind(shader);
+	//shader->setUniform("u_shininess", 1.0f - material->roughness_factor); // Convert roughness to shininess
 
-		// Render just the verticies as a wireframe
-		if (render_wireframe)
-			glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+	shader->setUniform("u_shininess", material->shininess); // Convert roughness to shininess
 
-		//do the draw call that renders the mesh into the screen
-		mesh->render(GL_TRIANGLES);
+	//send lights
+	vec3* light_pos = new vec3[light_list.size()];
+	vec3* light_color = new vec3[light_list.size()];
+	float* light_int = new float[light_list.size()];
+	vec3* light_dir = new vec3[light_list.size()];
+	int* light_type = new int[light_list.size()];
+	vec2* cone_info = new vec2[light_list.size()];
+	Matrix44* shadow_mat = new Matrix44[light_list.size()];
 
-		//disable shader
-		shader->disable();
+	int i = 0;
 
-		//set the render state as it was before to avoid problems with future renders
-		glDisable(GL_BLEND);
-		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-
+	for (LightEntity* light : light_list) {
+		light_pos[i] = light->root.getGlobalMatrix().getTranslation();
+		light_int[i] = light->intensity;
+		light_color[i] = light->color;
+		light_dir[i] = light->root.model.frontVector();
+		light_type[i] = light->light_type;
+		cone_info[i] = light->cone_info;
+		shadow_mat[i] = light->view_projection;
+		i++;
 	}
+
+	shader->setUniform("u_numShadows", (int)min(light_list.size(), 10));
+	shader->setUniform("u_bias", shadow_bias);
+	shader->setUniform("u_light_count", (int)min(light_list.size(), 10));
+	shader->setUniform3Array("u_light_pos", (float*)light_pos, min(light_list.size(), 10));
+	shader->setUniform3Array("u_light_color", (float*)light_color, min(light_list.size(), 10));
+	shader->setUniform1Array("u_light_intensity", light_int, min(light_list.size(), 10));
+	shader->setUniform1Array("u_light_type", (int*)light_type, min(light_list.size(), 10));
+	shader->setUniform3Array("u_light_dir", (float*)light_dir, min(light_list.size(), 10));
+	shader->setUniform2Array("u_light_cone", (float*)cone_info, min(light_list.size(), 10));
+	shader->setUniform("u_ambient_light", scene->ambient_light);
+
+	// We uploaded all the shadow maps manual
+	shader->setUniform("u_shadow_map_0", (shadow_fbos[0]->depth_texture), 2); //SPOT
+	//shader->setUniform("u_shadow_map_1", (shadow_fbos[1]->depth_texture), 3);
+	//shader->setUniform("u_shadow_map_2", (shadow_fbos[2]->depth_texture), 4);
+	shader->setUniform("u_shadow_map_3", (shadow_fbos[3]->depth_texture), 5); //DIRECTIONAL
+
+	shader->setUniform("u_shadow_matrix_0", shadow_mat[0]); //SPOT
+	//shader->setUniform("u_shadow_matrix_1", shadow_mat[1]);
+	//shader->setUniform("u_shadow_matrix_2", shadow_mat[2]);
+	shader->setUniform("u_shadow_matrix_3", shadow_mat[3]); //DIRECTIONAL
+
+	delete[] light_pos;
+	delete[] light_color;
+	delete[] light_int;
+	delete[] light_dir;
+	delete[] cone_info;
+	delete[] light_type;
+	delete[] shadow_mat;
+
+
+	//upload uniforms
+	shader->setUniform("u_model", model);
+	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+	shader->setUniform("u_camera_position", camera->eye);
+
+
+
+	// Upload time, for cool shader effects
+	float t = getTime();
+	shader->setUniform("u_time", t);
+
+	// Render just the verticies as a wireframe
+	if (render_wireframe)
+		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+	//do the draw call that renders the mesh into the screen
+	mesh->render(GL_TRIANGLES);
+
+	//disable shader
+	shader->disable();
+
+	//set the render state as it was before to avoid problems with future renders
+	glDisable(GL_BLEND);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
 }
 
@@ -1161,18 +1120,19 @@ void Renderer::showUI()
 {
 	ImGui::Checkbox("Wireframe", &render_wireframe);
 	ImGui::Checkbox("Boundaries", &render_boundaries);
-	ImGui::Checkbox("Multipass Rendering", &use_multipass);
 	ImGui::SliderFloat("Shadow Bias", &shadow_bias, 0.0f, 0.01f);
 	ImGui::Checkbox("Front Face Culling", &front_face_culling);
 	ImGui::Checkbox("Deferred Rendering", &use_deferred);
 	ImGui::Checkbox("Deferred - Light Volume", &light_volume);
-
-
-	// Solo usamos use_deferred
-	if ((use_deferred || light_volume) && use_multipass)
+	ImGui::Checkbox("Scene - Blur per Object", &scene_blur_object);
+	if (scene_blur_object)
 	{
-		use_multipass = false;
+		ImGui::SliderFloat("Car - Frequency", &frecuencia, 0.05f, 1.0f);
+
 	}
+
+
+	
 	if (light_volume)
 	{
 		use_deferred = true;

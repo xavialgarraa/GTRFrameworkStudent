@@ -2,7 +2,7 @@
 #include "scene.h"
 #include "prefab.h"
 #include "camera.h"
-
+#define M_PI 3.14159265358979323846
 #include "light.h"
 
 //forward declarations
@@ -43,12 +43,23 @@ namespace SCN {
 
 		SCN::Scene* scene;
 
+		//Blur 
 		SCN::Node* car1 = nullptr;
 		SCN::Node* car2 = nullptr;
 
-		bool use_multipass;
+		struct MotionBlurData {
+			Matrix44 prev_model;
+			Matrix44 current_model;
+		};
+
+		std::map<SCN::Node*, MotionBlurData> motion_data;
+
+
+		bool scene_blur_object;
 
 		float shadow_bias = 0.003f;
+		float amplitud;
+		float frecuencia;
 
 		bool front_face_culling;
 
