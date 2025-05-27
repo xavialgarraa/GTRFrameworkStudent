@@ -43,6 +43,9 @@ namespace SCN {
 
 		SCN::Scene* scene;
 
+		SCN::Node* car1 = nullptr;
+		SCN::Node* car2 = nullptr;
+
 		bool use_multipass;
 
 		float shadow_bias = 0.003f;
@@ -120,6 +123,8 @@ namespace SCN {
 		void renderLightVolumes(Camera* camera);
 
 		void showUI();
+
+		void update(float dt);
 	};
 
 };

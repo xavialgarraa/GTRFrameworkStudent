@@ -155,6 +155,16 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 		else if (entity->getType() == eEntityType::LIGHT) {
 			light_list.push_back((LightEntity*)entity);
 		}
+		
+		if (entity->name == "car1")
+		{
+			car1 = ((Node*)&entity->root);
+		}
+		
+		if (entity->name == "car2")
+		{
+			car2 = ((Node*)&entity->root);
+		}
 	}
 }
 
@@ -170,6 +180,10 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	parseSceneEntities(scene, camera);
 
 	renderShadowMap(scene); // 3.2.2 ASSIGNMENT 3
+
+	//Call update function
+	float dt = CORE::getTime();
+	//update(dt);
 
 	//set the clear color (the background color)
 	glClearColor(scene->background_color.x, scene->background_color.y, scene->background_color.z, 1.0);
@@ -373,6 +387,9 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 }
 
+void Renderer::update(float dt) {
+
+}
 
 void Renderer::renderSkybox(GFX::Texture* cubemap)
 {
