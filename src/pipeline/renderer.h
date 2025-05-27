@@ -126,6 +126,6 @@ namespace SCN {
 		GFX::FBO* motion_blur_fbo = nullptr;
 		bool use_camera_motion_blur = false;
 		bool use_object_motion_blur = false;
-		void renderCameraMotionBlur(GFX::Texture* input_texture);
+		void renderCameraMotionBlur();
 	};
 };
