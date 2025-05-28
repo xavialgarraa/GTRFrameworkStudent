@@ -592,6 +592,7 @@ layout(location = 0) out vec4 gbuffer_albedo;
 layout(location = 1) out vec4 gbuffer_normal;
 
 uniform sampler2D u_color_texture;
+uniform sampler2D u_metallic_roughness_texture;
 uniform vec4 u_color;
 uniform float u_alpha_cutoff;
 
@@ -679,7 +680,7 @@ float computeShadow(sampler2D shadow_map, mat4 shadow_matrix, vec3 world_positio
     float closest_depth = texture(shadow_map, shadow_uv).r;
     float current_depth = shadow_coord.z * 0.5 + 0.5;
 
-    return (current_depth - u_bias > closest_depth) ? 0.0 : 1.0;
+    return (current_depth > closest_depth) ? 0.0 : 1.0;
 }
 
 void main()
@@ -726,7 +727,7 @@ void main()
             L = normalize(light_vec);
             attenuation = 1.0 / (distance * distance);
             
-            if(i == 0) shadow = computeShadow(u_shadow_map_0, u_shadow_matrix_0, world_position);
+            //if(i == 0) shadow = computeShadow(u_shadow_map_0, u_shadow_matrix_0, world_position);
         }
         else if(u_light_type[i] == 2) { // Spot light
             vec3 light_vec = u_light_pos[i] - world_position;
@@ -743,7 +744,7 @@ void main()
             if(i == 0) shadow = computeShadow(u_shadow_map_0, u_shadow_matrix_0, world_position);
         }
         else if(u_light_type[i] == 3) { // Directional light
-            L = normalize(-u_light_dir[i]);
+            L = normalize(u_light_dir[i]);
             
             if(i == 3) shadow = computeShadow(u_shadow_map_3, u_shadow_matrix_3, world_position);
         }
@@ -860,7 +861,7 @@ void main() {
     float NdotV = max(dot(normal, V), 0.0);
 
     // Attenuation
-    float att = u_light_intensity / (1.0 + 0.1 * dist + 0.01 * dist * dist);
+    float att = u_light_intensity / (dist * dist);
 
     // Spotlight
     if (u_light_type == 2) {
@@ -883,7 +884,7 @@ void main() {
     vec3 radiance = u_light_color * att;
     vec3 color = (diffuse + specular) * radiance * NdotL;
 
-    FragColor = vec4(color, 1.0);
+    FragColor = vec4(vec3(color), 1.0);
 }
 
 
@@ -955,7 +956,7 @@ vec3 fresnelSchlick(float cosTheta, vec3 F0) {
 float distributionGGX(vec3 N, vec3 H, float roughness) {
     float a = roughness * roughness;
     float a2 = a * a;
-    float NdotH = max(dot(N, H), 0.0);
+    float NdotH = max(dot(N, H), 0.0001);
     float NdotH2 = NdotH * NdotH;
 
     float denom = (NdotH2 * (a2 - 1.0) + 1.0);
@@ -966,8 +967,8 @@ float distributionGGX(vec3 N, vec3 H, float roughness) {
 
 // Geometry function: Smith's method with Schlick-GGX
 float geometrySchlickGGX(float NdotV, float roughness) {
-    float r = roughness + 1.0;
-    float k = (r * r) / 8.0;
+    float a = roughness * roughness;
+    float k = a/2.0;
 
     return NdotV / max(NdotV * (1.0 - k) + k, 0.001);
 }
@@ -1057,7 +1058,7 @@ void main()
             occlusion += (sampleViewPos.z >= samplePos.z ? 1.0 : 0.0) * rangeCheck;
         } else {
             // Regular SSAO: Compare view-space Z values
-            occlusion += (sampleViewPos.z <= samplePos.z ? 1.0 : 0.0) * rangeCheck;
+            occlusion += (sampleViewPos.z >= samplePos.z ? 1.0 : 0.0) * rangeCheck;
         }
     }
     

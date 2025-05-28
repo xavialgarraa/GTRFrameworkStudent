@@ -574,7 +574,6 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 
 }
 
-
 // 3.2.1 ASSIGNMENT 3
 void Renderer::setupLight(SCN::LightEntity* light)
 {
@@ -592,7 +591,6 @@ void Renderer::setupLight(SCN::LightEntity* light)
 
 	light_camera.lookAt(light_pos, light_model * vec3(0.f, 0.f, -1.f), vec3(0.0f, 1.0f, 0.0f));
 }
-
 
 void Renderer::renderShadowMap(SCN::Scene* scene)
 {
@@ -1084,7 +1082,6 @@ void Renderer::renderToTonemap()
 	shader->disable();
 }
 
-
 void Renderer::copyDepthBuffer(GFX::FBO* source, GFX::FBO* dest) {
 	glBindFramebuffer(GL_READ_FRAMEBUFFER, source->fbo_id);
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dest->fbo_id);
@@ -1101,6 +1098,7 @@ void Renderer::setLightVolumeRenderState() {
 	glDepthMask(GL_FALSE); // No escribir en depth buffer
 	glCullFace(GL_FRONT); // Renderizar solo back faces (GL_CW)
 }
+
 void Renderer::restoreDefaultRenderState() {
 	glDisable(GL_BLEND);
 	glBlendFunc(GL_ONE, GL_ZERO);
