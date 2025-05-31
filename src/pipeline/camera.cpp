@@ -24,6 +24,8 @@ void Camera::enable()
 
 void Camera::updateViewMatrix()
 {
+	prev_viewprojection_matrix = viewprojection_matrix;
+
 	view_matrix.lookAt( eye, center, up );
 	viewprojection_matrix = view_matrix * projection_matrix;
 	front = (center - eye).normalize();

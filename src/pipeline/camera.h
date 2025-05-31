@@ -41,6 +41,9 @@ public:
 	Matrix44 viewprojection_matrix;
 	Matrix44 inverse_viewprojection_matrix;
 
+	// For motion blur
+	Matrix44 prev_viewprojection_matrix;
+
 	Vector3f front;
 
 	Camera();

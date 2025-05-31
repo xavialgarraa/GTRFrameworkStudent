@@ -44,7 +44,7 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	render_boundaries = false;
 	scene = nullptr;
 	skybox_cubemap = nullptr;
-
+	use_deferred = true;
 	scene_blur_object = false;
 	frecuencia = 0.5f;
 	amplitud = -0.5f;
@@ -93,6 +93,10 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	hdr_fbo = new GFX::FBO();
 	hdr_fbo->create(width, height, 1, GL_RGB, GL_UNSIGNED_BYTE, false);
 	hdr_fbo->color_textures[0]->filename = "HDR Result";
+
+	motion_blur_fbo = new GFX::FBO();
+	motion_blur_fbo->create(width, height, 1, GL_RGBA, GL_UNSIGNED_BYTE, true);
+	motion_blur_fbo->color_textures[0]->filename = "Motion Blur Result";
 }
 
 
@@ -183,25 +187,10 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 {
 	this->scene = scene;
 	setupScene();
-
-	// Clear previous frame data
 	draw_command_list.clear();
 	light_list.clear();
 
 	parseSceneEntities(scene, camera);
-
-	renderShadowMap(scene); // 3.2.2 ASSIGNMENT 3
-
-	if (scene_blur_object)
-	{
-		//Call update function
-		float dt = CORE::getTime();
-
-		dt /= 1000.f;
-
-		update(dt);
-	}
-	
 
 	//set the clear color (the background color)
 	glClearColor(scene->background_color.x, scene->background_color.y, scene->background_color.z, 1.0);
@@ -210,199 +199,105 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	GFX::checkGLErrors();
 
-	renderToGBuffer();
-	gbuffer_fbo->color_textures[0]->toViewport();
-
 	//render skybox
 	if (skybox_cubemap)
 		renderSkybox(skybox_cubemap);
 
-	if (use_deferred)
-	{
-		if (light_volume)
-		{
+	renderToGBuffer();
 
-			copyDepthBuffer(gbuffer_fbo, lighting_fbo);
+	renderShadowMap(scene);
 
-			lighting_fbo->bind();
-			glClear(GL_COLOR_BUFFER_BIT);
+	if (use_ssao)
+		applySSAO();
 
-			glDisable(GL_BLEND);
-			glDepthMask(GL_FALSE);
-			glDepthFunc(GL_LEQUAL);
+	if (light_volume)
+		applyLightingWithVolume();
+	else
+		applyLightingSinglePass();
 
-			//render skybox
-			if (skybox_cubemap)
-				renderSkybox(skybox_cubemap);
+	if (use_camera_motionblur)
+		applyCameraMotionBlur();
 
-			renderDeferredAmbientPass();
-			renderDirectionalLights();
+	projectToScene();
 
+}
 
-			renderLightVolumes(camera);
+void Renderer::applySSAO() {
+	copyDepthBuffer(gbuffer_fbo, ssao_fbo);
+	generateSpherePoints(ssao_kernel_size, ssao_radius, use_ssao_plus);
+	ssao_fbo->bind();
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glDisable(GL_BLEND);
+	glDepthMask(GL_FALSE);
+	glDepthFunc(GL_LEQUAL);
+	renderSSAO(Camera::current);
+	ssao_fbo->unbind();
+}
 
+void Renderer::applyLightingWithVolume() {
+	copyDepthBuffer(gbuffer_fbo, lighting_fbo);
+	lighting_fbo->bind();
+	glClear(GL_COLOR_BUFFER_BIT);
+	glDisable(GL_BLEND);
+	glDepthMask(GL_FALSE);
+	glDepthFunc(GL_LEQUAL);
+	renderDeferredAmbientPass();
+	renderDirectionalLights();
+	renderLightVolumes(Camera::current);
+	lighting_fbo->unbind();
+}
 
-			// 8. Unbind lighting FBO
-			lighting_fbo->unbind();
+void Renderer::applyLightingSinglePass() {
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glViewport(0, 0, gbuffer_fbo->width, gbuffer_fbo->height);
+	glClearColor(scene->background_color.x, scene->background_color.y, scene->background_color.z, 1.0f);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glDepthMask(GL_TRUE);
+	glDepthFunc(GL_LESS);
+	glDisable(GL_BLEND);
+	renderDeferredSinglePass();
+}
 
-			// 9. Mostrar resultado final
-			lighting_fbo->color_textures[0]->toViewport();
-		}
-		else if (use_ssao) {
-			copyDepthBuffer(gbuffer_fbo, ssao_fbo);
-			if (use_ssao_plus)
-			{
-				generateSpherePoints(ssao_kernel_size, ssao_radius, true);
+void Renderer::applyCameraMotionBlur() {
+	GFX::Shader* shader = GFX::Shader::Get("camera_motion_blur");
+	if (!shader) return;
 
-			}
-			else {
-				generateSpherePoints(ssao_kernel_size, ssao_radius, false);
+	motion_blur_fbo->bind(); // render to motion blur FBO
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	shader->enable();
 
-			}
+	Camera* cam = Camera::current;
+	Matrix44 curr_vp = cam->viewprojection_matrix;
+	Matrix44 prev_vp = cam->prev_viewprojection_matrix;
 
-			ssao_fbo->bind();
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	shader->setUniform("u_viewprojection", curr_vp);
+	shader->setUniform("u_prev_viewprojection", prev_vp);
+	shader->setUniform("u_camera_position", cam->eye);
+	shader->setUniform("u_res_inv", Vector2f(1.0f / motion_blur_fbo->width, 1.0f / motion_blur_fbo->height));
+	shader->setUniform("u_sample_count", blur_sample_count);
+	shader->setUniform("u_blur_strength", blur_strength);
 
-			glDisable(GL_BLEND);
-			glDepthMask(GL_FALSE);
-			glDepthFunc(GL_LEQUAL);
+	shader->setTexture("u_color_texture", gbuffer_fbo->color_textures[0], 0);
+	shader->setTexture("u_depth_texture", gbuffer_fbo->depth_texture, 1);
 
-			//render skybox
-			if (skybox_cubemap)
-				renderSkybox(skybox_cubemap);
+	GFX::Mesh::getQuad()->render(GL_TRIANGLES);
+	shader->disable();
+	motion_blur_fbo->unbind();
 
-			renderSSAO(Camera::current);
+	cam->prev_viewprojection_matrix = curr_vp;
+}
 
-			// 8. Unbind lighting FBO
-			ssao_fbo->unbind();
-
-			// 9. Mostrar resultado final
-			ssao_fbo->color_textures[0]->toViewport();
-
-			//blurSSAOTexture();
-
-			if (ssao_plus_deferred) {
-
-				//2.2
-				// Restaurar estado OpenGL
-				glBindFramebuffer(GL_FRAMEBUFFER, 0);
-				glViewport(0, 0, gbuffer_fbo->width, gbuffer_fbo->height);
-				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-				glDepthMask(GL_TRUE);
-				glDepthFunc(GL_LESS);
-				glDisable(GL_BLEND);
-
-				//render skybox
-				if (skybox_cubemap)
-					renderSkybox(skybox_cubemap);
-
-				// Render simple pass
-				renderDeferredSinglePass();
-			}
-		}
-		else if (use_hdr)
-		{
-			//2.2
-			hdr_fbo->bind();
-			glClearColor(0, 0, 0, 1);
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-			// Render scene (deferred simple pass)
-			renderDeferredSinglePass();
-
-			hdr_fbo->unbind();
-
-			// Tone mapping final al quad
-			renderToTonemap();
-
-		}
-		else {
-			//2.2
-			// Restaurar estado OpenGL
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-			glViewport(0, 0, gbuffer_fbo->width, gbuffer_fbo->height);
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-			glDepthMask(GL_TRUE);
-			glDepthFunc(GL_LESS);
-			glDisable(GL_BLEND);
-
-			//render skybox
-			if (skybox_cubemap)
-				renderSkybox(skybox_cubemap);
-
-			// Render simple pass
-			renderDeferredSinglePass();
-
-		}
-
-		// Enable blending for transparent objects
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-		//transparent objects
-		std::vector<sDrawCommand> transparent_commands;
-		// Sort transparent commands back-to-front
-		std::sort(transparent_commands.begin(), transparent_commands.end(), [](const sDrawCommand& a, const sDrawCommand& b) {
-			return a.distance_to_camera > b.distance_to_camera;
-			});
-
-		// Enable blending for transparent objects
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-		// Render transparent objects last
-		for (const sDrawCommand& command : transparent_commands) {
-			renderMeshWithMaterial(command.model, command.mesh, command.material);
-		}
-
-		// Disable blending for next frame
-		glDisable(GL_BLEND);
-
-
-	}
-	else {
-		// Separate opaque and transparent objects
-		std::vector<sDrawCommand> opaque_commands;
-		std::vector<sDrawCommand> transparent_commands;
-
-		for (const sDrawCommand& command : draw_command_list) {
-			if (command.material && command.material->alpha_mode == SCN::eAlphaMode::BLEND) {
-				transparent_commands.push_back(command);
-			}
-			else {
-				opaque_commands.push_back(command);
-			}
-		}
-
-		// Sort opaque commands front-to-back
-		std::sort(opaque_commands.begin(), opaque_commands.end(), [](const sDrawCommand& a, const sDrawCommand& b) {
-			return a.distance_to_camera < b.distance_to_camera;
-			});
-
-		// Sort transparent commands back-to-front
-		std::sort(transparent_commands.begin(), transparent_commands.end(), [](const sDrawCommand& a, const sDrawCommand& b) {
-			return a.distance_to_camera > b.distance_to_camera;
-			});
-
-		// Render opaque objects first
-		for (const sDrawCommand& command : opaque_commands) {
-			renderMeshWithMaterial(command.model, command.mesh, command.material);
-		}
-
-		// Enable blending for transparent objects
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-		// Render transparent objects last
-		for (const sDrawCommand& command : transparent_commands) {
-			renderMeshWithMaterial(command.model, command.mesh, command.material);
-		}
-
-		// Disable blending for next frame
-		glDisable(GL_BLEND);
-
-	}
-
+void Renderer::projectToScene() {
+	if (use_camera_motionblur)
+		motion_blur_fbo->color_textures[0]->toViewport();
+	else if (light_volume)
+		lighting_fbo->color_textures[0]->toViewport();
+	else if (use_ssao)
+		ssao_fbo->color_textures[0]->toViewport();
+	else if (use_hdr)
+		renderToTonemap();
+	else
+		gbuffer_fbo->color_textures[0]->toViewport();
 }
 
 void Renderer::update(float dt) {
@@ -1160,6 +1055,11 @@ void Renderer::showUI()
 		ImGui::Combo("Tone Mapping", &tone_operator, tone_ops, IM_ARRAYSIZE(tone_ops));
 		ImGui::SliderFloat("HDR Exposure", &exposure, 0.1f, 5.0f);
 		ImGui::Checkbox("Apply Gamma Correction", &apply_gamma);
+	}
+	ImGui::Checkbox("Motion Blur (Camera)", &use_camera_motionblur);
+	if (use_camera_motionblur) {
+		ImGui::SliderFloat("Blur Strength", &blur_strength, 0.1f, 3.0f);
+		ImGui::SliderInt("Sample Count", &blur_sample_count, 4, 32);
 	}
 }
 

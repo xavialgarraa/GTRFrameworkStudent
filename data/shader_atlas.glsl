@@ -14,6 +14,7 @@ light_volume light_volume.vs light_volume.fs
 deferred_ambient quad.vs deferred_ambient.fs
 ssao quad.vs ssao.fs
 tonemap quad.vs tonemap.fs
+camera_motion_blur quad.vs camera_motion_blur.fs
 
 \test.cs
 #version 430 core
@@ -1114,4 +1115,54 @@ void main()
         mapped = pow(mapped, vec3(1.0 / 2.2));
 
     FragColor = vec4(mapped, 1.0);
+}
+
+\camera_motion_blur.fs
+#version 330 core
+
+in vec2 v_uv;
+out vec4 FragColor;
+
+uniform sampler2D u_color_texture;
+uniform sampler2D u_depth_texture;
+
+uniform mat4 u_viewprojection;
+uniform mat4 u_prev_viewprojection;
+
+uniform vec2 u_res_inv;
+uniform int u_sample_count;
+uniform vec3 u_camera_position;
+uniform float u_blur_strength;
+
+void main() {
+    float depth = texture(u_depth_texture, v_uv).r;
+    if (depth == 1.0) {
+        FragColor = texture(u_color_texture, v_uv);
+        return;
+    }
+
+    vec4 ndc = vec4(v_uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    mat4 inv_vp = inverse(u_viewprojection);
+    vec4 world_pos = inv_vp * ndc;
+    world_pos /= world_pos.w;
+
+    vec4 prev_pos = u_prev_viewprojection * world_pos;
+    prev_pos /= prev_pos.w;
+
+    vec2 curr_uv = v_uv;
+    vec2 prev_uv = prev_pos.xy * 0.5 + 0.5;
+    vec2 motion = (curr_uv - prev_uv) * u_blur_strength;
+
+    vec3 color = vec3(0.0);
+    float weight_sum = 0.0;
+
+    for (int i = 0; i < u_sample_count; ++i) {
+        float t = float(i) / float(u_sample_count - 1);
+        vec2 sample_uv = clamp(curr_uv - motion * t, 0.0, 1.0);
+        vec3 sample = texture(u_color_texture, sample_uv).rgb;
+        float weight = 1.0 - abs(t - 0.5) * 2.0;
+        color += sample * weight;
+        weight_sum += weight;
+    }
+    FragColor = vec4(color / weight_sum, 1.0);
 }

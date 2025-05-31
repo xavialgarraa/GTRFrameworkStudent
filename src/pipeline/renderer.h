@@ -31,7 +31,7 @@ namespace SCN {
 		GFX::Texture* shadow_map = nullptr;
 		GFX::FBO* shadow_fbo = nullptr;
 		GFX::FBO* lighting_fbo = nullptr;
-
+		GFX::FBO* motion_blur_fbo = nullptr;
 		GFX::FBO* gbuffer_fbo = nullptr;
 		bool use_deferred = false;
 
@@ -54,6 +54,9 @@ namespace SCN {
 
 		std::map<SCN::Node*, MotionBlurData> motion_data;
 
+		bool use_camera_motionblur = false;
+		float blur_strength = 1.0f;
+		int blur_sample_count = 12;
 
 		bool scene_blur_object;
 
@@ -118,7 +121,6 @@ namespace SCN {
 
 		void copyDepthBuffer(GFX::FBO* source, GFX::FBO* dest);
 
-
 		void restoreDefaultRenderState();
 
 		void setLightVolumeRenderState();
@@ -136,6 +138,16 @@ namespace SCN {
 		void showUI();
 
 		void update(float dt);
+
+		void applySSAO();
+
+		void applyLightingWithVolume();
+
+		void applyLightingSinglePass();
+
+		void applyCameraMotionBlur();
+
+		void projectToScene();
 	};
 
 };
