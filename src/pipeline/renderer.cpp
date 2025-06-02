@@ -1331,6 +1331,12 @@ void Renderer::renderSSAO(Camera* camera)
 	ssao_shader->setUniform("u_p_mat", proj);
 	ssao_shader->setUniform("u_inv_p_mat", inv_proj);
 
+	ssao_shader->setUniform("u_view_mat", camera->view_matrix); 
+
+	ssao_shader->setUniform("u_near", camera->near_plane);
+	ssao_shader->setUniform("u_far", camera->far_plane);
+
+
 	glDisable(GL_DEPTH_TEST);
 	// Draw quad
 	quad->render(GL_TRIANGLES);

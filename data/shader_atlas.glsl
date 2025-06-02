@@ -772,8 +772,13 @@ void main()
         float denominator = 4.0 * NdotV * NdotL + 0.001;
         vec3 specular = numerator / denominator;
 
-        vec3 kS = F;
-        vec3 kD = (1.0 - kS) * (1.0 - metalness);
+        float minDiffuse = 0.05; // o 0.1 si lo querés más evidente
+        vec3 kS = fresnelSchlick(max(dot(N, V), 0.0), F0);
+        float clamped_metalness = clamp(metalness, 0.0, 0.95); // evitar apagado total
+
+        vec3 kD = max((1.0 - kS) * (1.0 - clamped_metalness), vec3(minDiffuse));
+
+
 
         light_intensity = u_light_color[i] * u_light_intensity[i] * attenuation * spotlight_factor * shadow;
         vec3 diffuse = (kD * albedo / 3.141592) * NdotL;
@@ -781,10 +786,15 @@ void main()
         final_color += (diffuse + specular) * light_intensity;
 
     }
+    float minDiffuse = 0.1; // o 0.1 si lo querés más evidente
     vec3 kS = fresnelSchlick(max(dot(N, V), 0.0), F0);
-    vec3 kD = (1.0 - kS) * (1.0 - metalness);
+    float clamped_metalness = clamp(metalness, 0.0, 0.95); // evitar apagado total
+
+    vec3 kD = max((1.0 - kS) * (1.0 - clamped_metalness), vec3(minDiffuse));
+
     vec3 ambient = u_ambient_light * (albedo * kD) * occlusion;
 
+   
     FragColor = vec4(final_color + ambient, 1.0);
 }
 
@@ -871,7 +881,7 @@ void main() {
 
     // Spotlight
     if (u_light_type == 2) {
-        float cos_angle = dot(-L, normalize(u_light_dir));
+        float cos_angle = dot(L, normalize(u_light_dir));
         float spot = smoothstep(u_light_cone.y, u_light_cone.x, cos_angle);
         att *= spot;
     }
@@ -997,11 +1007,20 @@ uniform int u_sample_count;
 uniform float u_sample_radius;
 uniform mat4 u_p_mat;
 uniform mat4 u_inv_p_mat;
+uniform mat4 u_view_mat;
 uniform vec2 u_res_inv;
 uniform int u_use_ssao_plus;
+uniform float u_near;
+uniform float u_far;
 
 in vec2 v_uv;
 out vec4 FragColor;
+
+float linearizeDepth(float z)
+{
+    float z_ndc = z * 2.0 - 1.0;
+    return (2.0 * u_near * u_far) / (u_far + u_near - z_ndc * (u_far - u_near));
+}
 
 vec3 viewPosFromDepth(float depth, vec2 texCoord) {
     vec4 clipPos = vec4(texCoord * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
@@ -1011,69 +1030,53 @@ vec3 viewPosFromDepth(float depth, vec2 texCoord) {
 
 void main()
 {
-    // Get depth and normal from GBuffer
-    float depth = texture(u_gbuffer_depth, v_uv).r;
-    vec3 normal = normalize(texture(u_gbuffer_normal, v_uv).xyz * 2.0 - 1.0);
-    
-    // Background (depth = 1.0) - no occlusion
-    if (depth >= 1.0) {
+    float rawDepth = texture(u_gbuffer_depth, v_uv).r;
+    if (rawDepth >= 1.0) {
         FragColor = vec4(1.0);
         return;
     }
-    
+
+    float depth = linearizeDepth(rawDepth);
     vec3 fragPos = viewPosFromDepth(depth, v_uv);
-    
-    // Generate random rotation using noise
+
+    vec3 normal_ws = normalize(texture(u_gbuffer_normal, v_uv).xyz * 2.0 - 1.0);
+    vec3 normal_vs = normalize((u_view_mat * vec4(normal_ws, 0.0)).xyz);
+
     vec3 randomVec = normalize(vec3(
         fract(sin(dot(v_uv, vec2(12.9898, 78.233))) * 43758.5453),
         fract(sin(dot(v_uv, vec2(39.346, 11.135))) * 43758.5453),
         0.0
     ));
-    
-    // Create TBN matrix to orient samples
-    vec3 tangent = normalize(randomVec - normal * dot(randomVec, normal));
-    vec3 bitangent = cross(normal, tangent);
-    mat3 TBN = mat3(tangent, bitangent, normal);
-    
-    // Calculate occlusion
+
+    vec3 tangent = normalize(randomVec - normal_vs * dot(randomVec, normal_vs));
+    vec3 bitangent = cross(normal_vs, tangent);
+    mat3 TBN = mat3(tangent, bitangent, normal_vs);
+
     float occlusion = 0.0;
-    for(int i = 0; i < u_sample_count; i++) {
-        // Get sample position in view space
-        vec3 samplePos = TBN * u_sample_pos[i]; // From tangent to view space
+
+    for (int i = 0; i < u_sample_count; i++) {
+        vec3 samplePos = TBN * u_sample_pos[i];
         samplePos = fragPos + samplePos * u_sample_radius;
-        
-        // Project sample position to screen space
-        vec4 offset = vec4(samplePos, 1.0);
-        offset = u_p_mat * offset;
+
+        vec4 offset = u_p_mat * vec4(samplePos, 1.0);
         offset.xyz /= offset.w;
-        offset.xy = offset.xy * 0.5 + 0.5; // Transform to [0,1] range
-        
-        // Check if sample is outside screen
-        if(offset.x < 0.0 || offset.x > 1.0 || offset.y < 0.0 || offset.y > 1.0) {
+        offset.xy = offset.xy * 0.5 + 0.5;
+
+        if (offset.x < 0.0 || offset.x > 1.0 || offset.y < 0.0 || offset.y > 1.0) {
             continue;
         }
-        
-        // Get sample depth from GBuffer
-        float sampleDepth = texture(u_gbuffer_depth, offset.xy).r;
+
+        float sampleRawDepth = texture(u_gbuffer_depth, offset.xy).r;
+        float sampleDepth = linearizeDepth(sampleRawDepth);
         vec3 sampleViewPos = viewPosFromDepth(sampleDepth, offset.xy);
-        
+
         float rangeCheck = smoothstep(0.0, 1.0, u_sample_radius / abs(fragPos.z - sampleViewPos.z));
-        
-        if (u_use_ssao_plus == 1) {
-            // SSAO+: Only count samples in front of the surface
-            occlusion += (sampleViewPos.z >= samplePos.z ? 1.0 : 0.0) * rangeCheck;
-        } else {
-            // Regular SSAO: Compare view-space Z values
-            occlusion += (sampleViewPos.z >= samplePos.z ? 1.0 : 0.0) * rangeCheck;
-        }
+        occlusion += (sampleViewPos.z >= samplePos.z ? 1.0 : 0.0) * rangeCheck;
     }
-    
-    // Normalize and invert occlusion
+
     occlusion = 1.0 - (occlusion / float(u_sample_count));
-    
     occlusion = pow(occlusion, 2.0);
-    
-    FragColor = vec4(occlusion, occlusion, occlusion, 1.0);
+    FragColor = vec4(vec3(occlusion), 1.0);
 }
 
 \tonemap.fs
