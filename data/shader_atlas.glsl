@@ -16,6 +16,7 @@ ssao quad.vs ssao.fs
 tonemap quad.vs tonemap.fs
 velocity velocity.vs velocity.fs
 motion_blur motion_blur.vs motion_blur.fs
+quad_texture quad.vs quad_texture.fs
 
 
 \test.cs
@@ -101,6 +102,18 @@ out vec4 FragColor;
 void main()
 {
 	FragColor = u_color;
+}
+
+
+\quad_texture.fs
+#version 330 core
+in vec2 v_uv;
+out vec4 fragColor;
+
+uniform sampler2D u_texture;
+
+void main() {
+    fragColor = texture(u_texture, v_uv);
 }
 
 
@@ -801,22 +814,20 @@ void main()
 \light_volume.vs
 #version 330 core
 
-in vec3 a_vertex;       // Posición del vértice (esfera unitaria)
-in vec3 a_normal;       // Normal (no siempre necesaria para light volumes)
+in vec3 a_vertex;       
+in vec3 a_normal;      
 
-uniform mat4 u_model;           // Transformación de la luz (posición + escala)
-uniform mat4 u_viewprojection;  // View + Projection
-uniform vec3 u_camera_pos;      // Posición de cámara (para efectos opcionales)
+uniform mat4 u_model;           
+uniform mat4 u_viewprojection;  
+uniform vec3 u_camera_pos;     
 
-out vec3 v_world_position;      // Posición en mundo del vértice
-out vec3 v_normal;              // Normal (opcional, para efectos avanzados)
+out vec3 v_world_position;     
+out vec3 v_normal;              
 
 void main()
 {
-    // Transformar vértice a mundo (la esfera se escala según el radio de influencia de la luz)
     v_world_position = (u_model * vec4(a_vertex, 1.0)).xyz;
     
-    // Pasar la normal (útil si quieres hacer efectos como "rim lighting" en el volumen)
     v_normal = normalize((u_model * vec4(a_normal, 0.0)).xyz);
     
     // Posición en clip space
@@ -1042,11 +1053,10 @@ void main()
     vec3 normal_ws = normalize(texture(u_gbuffer_normal, v_uv).xyz * 2.0 - 1.0);
     vec3 normal_vs = normalize((u_view_mat * vec4(normal_ws, 0.0)).xyz);
 
-    vec3 randomVec = normalize(vec3(
-        fract(sin(dot(v_uv, vec2(12.9898, 78.233))) * 43758.5453),
-        fract(sin(dot(v_uv, vec2(39.346, 11.135))) * 43758.5453),
-        0.0
-    ));
+    vec3 randomVec = vec3(1.0, 0.0, 0.0);
+    
+    
+    
 
     vec3 tangent = normalize(randomVec - normal_vs * dot(randomVec, normal_vs));
     vec3 bitangent = cross(normal_vs, tangent);
@@ -1056,7 +1066,7 @@ void main()
 
     for (int i = 0; i < u_sample_count; i++) {
         vec3 samplePos = TBN * u_sample_pos[i];
-        samplePos = fragPos + samplePos * u_sample_radius;
+        samplePos = fragPos + samplePos;
 
         vec4 offset = u_p_mat * vec4(samplePos, 1.0);
         offset.xyz /= offset.w;
@@ -1126,8 +1136,7 @@ void main()
 }
 
 \velocity.vs
-// ============ VELOCITY SHADER ============
-// velocity.vs (Vertex Shader)
+
 #version 330 core
 
 in vec3 a_vertex;
@@ -1159,7 +1168,6 @@ void main() {
 \velocity.fs
 #version 330 core
 
-// Inputs interpolados desde el vertex shader
 in vec4 v_current_pos;  // posición actual en clip space
 in vec4 v_prev_pos;     // posición del frame anterior en clip space
 
@@ -1243,10 +1251,8 @@ void main() {
             
             vec3 sample_color = texture(u_color_texture, sample_uv).rgb;
             
-            // Peso basado en la distancia al centro
             float weight = 1.0 - abs(t);
             
-            // Opcional: peso basado en profundidad para evitar bleeding
             float center_depth = texture(u_depth_texture, v_uv).r;
             float sample_depth = texture(u_depth_texture, sample_uv).r;
             float depth_diff = abs(center_depth - sample_depth);
@@ -1268,8 +1274,7 @@ void main() {
 }
 
 \motion_blur_camera.fs
-// ============ SHADER ALTERNATIVO PARA CAMERA MOTION BLUR ============
-// camera_motion_blur.fs - Más simple, solo basado en posición de screen
+//No utilizada al final
 #version 330 core
 
 in vec2 v_uv;
@@ -1287,12 +1292,10 @@ out vec4 fragColor;
 void main() {
     float depth = texture(u_depth_texture, v_uv).r;
     
-    // Reconstruir posición mundial
     vec4 clip_pos = vec4(v_uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     vec4 world_pos = u_inverse_view_projection * clip_pos;
     world_pos /= world_pos.w;
     
-    // Calcular posiciones en frames actual y anterior
     vec4 current_clip = u_current_view_projection * world_pos;
     vec4 prev_clip = u_prev_view_projection * world_pos;
     
@@ -1301,7 +1304,6 @@ void main() {
     
     vec2 velocity = (current_screen - prev_screen) * u_motion_blur_strength;
     
-    // Aplicar motion blur
     vec3 color = vec3(0.0);
     for (int i = 0; i < u_motion_blur_samples; ++i) {
         float t = float(i) / float(u_motion_blur_samples - 1) * 2.0 - 1.0;

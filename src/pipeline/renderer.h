@@ -143,8 +143,12 @@ namespace SCN {
 		void renderToTonemap();
 
 		void renderLightVolumes(Camera* camera);
+		
 		void renderMotionVectors();
-		SCN::Node* findNodeForName(std::string name);
+
+		void renderFBOToScreen(GFX::FBO* fbo, GFX::Shader* shader);
+
+
 		void applyMotionBlur();
 
 
