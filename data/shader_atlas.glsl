@@ -686,7 +686,7 @@ float computeShadow(sampler2D shadow_map, mat4 shadow_matrix, vec3 world_positio
     float closest_depth = texture(shadow_map, shadow_uv).r;
     float current_depth = shadow_coord.z * 0.5 + 0.5;
 
-    return (current_depth > closest_depth) ? 0.0 : 1.0;
+    return (current_depth > closest_depth) ? 0.005 : 1.0;
 }
 
 void main()
@@ -744,7 +744,7 @@ void main()
             float outer = cos(u_light_cone[i].y);
             float inner = cos(u_light_cone[i].x);
             float epsilon = inner - outer;
-            spotlight_factor = clamp((theta - outer) / epsilon, 0.0, 1.0);
+            spotlight_factor = clamp((theta - outer) / epsilon, 0.005, 1.0);
             attenuation = 1.0 / (distance * distance);
             
             if(i == 0) shadow = computeShadow(u_shadow_map_0, u_shadow_matrix_0, world_position);
@@ -761,20 +761,20 @@ void main()
         vec3 light_intensity = u_light_color[i] * u_light_intensity[i] * attenuation * spotlight_factor * shadow;
 
         vec3 H = normalize(L + V);
-        float NdotL = max(dot(N, L), 0.0);
-        float NdotV = max(dot(N, V), 0.0);
+        float NdotL = max(dot(N, L), 0.005);
+        float NdotV = max(dot(N, V), 0.005);
 
         float NDF = distributionGGX(N, H, roughness);
         float G   = geometrySmith(N, V, L, roughness);
-        vec3  F   = fresnelSchlick(max(dot(H, V), 0.0), F0);
+        vec3  F   = fresnelSchlick(max(dot(H, V), 0.005), F0);
 
         vec3 numerator = NDF * G * F;
         float denominator = 4.0 * NdotV * NdotL + 0.001;
         vec3 specular = numerator / denominator;
 
         float minDiffuse = 0.05; // o 0.1 si lo querés más evidente
-        vec3 kS = fresnelSchlick(max(dot(N, V), 0.0), F0);
-        float clamped_metalness = clamp(metalness, 0.0, 0.95); // evitar apagado total
+        vec3 kS = fresnelSchlick(max(dot(N, V), 0.005), F0);
+        float clamped_metalness = clamp(metalness, 0.005, 0.95); // evitar apagado total
 
         vec3 kD = max((1.0 - kS) * (1.0 - clamped_metalness), vec3(minDiffuse));
 
@@ -787,14 +787,14 @@ void main()
 
     }
     float minDiffuse = 0.1; // o 0.1 si lo querés más evidente
-    vec3 kS = fresnelSchlick(max(dot(N, V), 0.0), F0);
-    float clamped_metalness = clamp(metalness, 0.0, 0.95); // evitar apagado total
+    vec3 kS = fresnelSchlick(max(dot(N, V), 0.005), F0);
+    float clamped_metalness = clamp(metalness, 0.005, 0.95); 
 
     vec3 kD = max((1.0 - kS) * (1.0 - clamped_metalness), vec3(minDiffuse));
 
     vec3 ambient = u_ambient_light * (albedo * kD) * occlusion;
 
-   
+    
     FragColor = vec4(final_color + ambient, 1.0);
 }
 

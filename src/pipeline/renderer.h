@@ -112,7 +112,7 @@ namespace SCN {
 
 		void setupLight(SCN::LightEntity* light); // 3.2.1 ASSIGNMENT 3
 		void renderShadowMap(SCN::Scene* scene); // 3.2.2 ASSIGNMENT 3
-
+		void parseNodes(SCN::Node* node, Camera* cam, BaseEntity* entity);
 		void parseSceneEntities(SCN::Scene* scene, Camera* camera);
 
 		//renders several elements of the scene

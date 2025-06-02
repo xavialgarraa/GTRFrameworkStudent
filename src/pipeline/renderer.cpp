@@ -26,6 +26,9 @@ struct sDrawCommand {
 	Matrix44 model;
     std::string name;
 	float distance_to_camera;
+	SCN::BaseEntity* entity = nullptr;
+	SCN::Node* node = nullptr;
+
 };
 
 std::vector<sDrawCommand> draw_command_list;
@@ -132,7 +135,7 @@ void Renderer::setupScene()
 }
 
 // Updated parseNodes function to include frustum culling
-void parseNodes(SCN::Node* node, Camera* cam) {
+void Renderer::parseNodes(SCN::Node* node, Camera* cam, BaseEntity* entity) {
 	if (!node || !cam) {
 		return;
 	}
@@ -141,6 +144,13 @@ void parseNodes(SCN::Node* node, Camera* cam) {
 		// Get global matrix and bounding box
 		Matrix44 model = node->getGlobalMatrix();
 		BoundingBox world_bounding = transformBoundingBox(model, node->mesh->box);
+		
+		// Inicializa motion_data para todos los nodos con mesh (es lo que se renderiza)
+		if (node->mesh) {
+			if (motion_data.count(node) == 0) {
+				motion_data[node].prev_model = node->getGlobalMatrix();
+			}
+		}
 
 		// Frustum culling check
 		if (cam->testBoxInFrustum(world_bounding.center, world_bounding.halfsize)) {
@@ -149,6 +159,8 @@ void parseNodes(SCN::Node* node, Camera* cam) {
 			draw_com.material = node->material;
 			draw_com.model = model;
 			draw_com.name = node->name;
+			draw_com.node = node;
+			draw_com.entity = entity;  // Debes pasarlo desde parseSceneEntities()
 
 			// Calculate distance to camera for sorting
 			vec3 position = model.getTranslation();
@@ -159,8 +171,10 @@ void parseNodes(SCN::Node* node, Camera* cam) {
 	}
 
 	for (SCN::Node* child : node->children) {
-		parseNodes(child, cam);
+		parseNodes(child, cam, entity);
 	}
+
+
 }
 
 void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
@@ -179,7 +193,7 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 		}
 
 		if (entity->getType() == eEntityType::PREFAB) {
-			parseNodes(&((PrefabEntity*)entity)->root, cam);
+			parseNodes(&((PrefabEntity*)entity)->root, cam, entity);
 		}
 		else if (entity->getType() == eEntityType::LIGHT) {
 			light_list.push_back((LightEntity*)entity);
@@ -188,11 +202,9 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 		if (entity->name == "car1")
 		{
 			car1 = ((Node*)&entity->root);
-			motion_data[car1];
-
-
+			
 		}
-		
+
 		if (entity->name == "car2")
 		{
 			car2 = ((Node*)&entity->root);
@@ -200,6 +212,7 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 			motion_data[car2];
 
 		}
+
 	}
 }
 
@@ -217,7 +230,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	parseSceneEntities(scene, camera);
 
 	renderShadowMap(scene); // 3.2.2 ASSIGNMENT 3
-	
+
 	if (!has_prev_view_projection)
 	{
 		prev_view_projection = Camera::current->viewprojection_matrix;
@@ -230,7 +243,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		MotionBlurData& data = pair.second;
 
 		data.prev_model = data.current_model;
-		data.current_model = node->model;	
+		data.current_model = node->getGlobalMatrix();
 	}
 	
 	if (scene_blur_object)
@@ -902,34 +915,29 @@ void Renderer::renderMotionVectors() {
 	velocity_shader->setUniform("u_prev_view_projection", prev_view_projection);
 
 	// Renderizar objetos con vectores de velocidad
-	int i = 0;
 	for (const sDrawCommand& command : draw_command_list) {
 		if (command.material && command.material->alpha_mode == SCN::eAlphaMode::BLEND)
 			continue; // Skip transparent objects
 
-		Matrix44 current_mvp = current_view_projection * command.model;
-		Matrix44 prev_mvp;
+		Matrix44 model = command.model;
+		Matrix44 current_mvp = current_view_projection * model;
 
-		// Buscar datos de movimiento del objeto
-		//SCN::Node* node = findNodeForName(command.name); // Función helper
-		if (use_object_motion_blur /*&& no se como entrar aqui*/) {
-			prev_mvp = prev_view_projection * motion_data[car2].prev_model;
-		}
-		else {
-			// Solo motion blur de cámara
-			prev_mvp = prev_view_projection * command.model;
+		SCN::Node* node = command.node;
+		Matrix44 prev_model = model; // default fallback
+
+		if (use_object_motion_blur && node && motion_data.count(node)) {
+			prev_model = motion_data[node].prev_model;
 		}
 
-		velocity_shader->setUniform("u_model", command.model);
-		velocity_shader->setUniform("u_prev_model",
-			use_object_motion_blur /*((i == 9) || (i == 10) */ ?
-			motion_data[car2].prev_model : command.model);
+		Matrix44 prev_mvp = prev_view_projection * prev_model;
 
+		velocity_shader->setUniform("u_model", model);
+		velocity_shader->setUniform("u_prev_model", prev_model);
 		velocity_shader->setUniform("u_current_mvp", current_mvp);
 		velocity_shader->setUniform("u_prev_mvp", prev_mvp);
+
 		command.material->bind(velocity_shader);
 		command.mesh->render(GL_TRIANGLES);
-		i++;
 	}
 
 	velocity_shader->disable();
