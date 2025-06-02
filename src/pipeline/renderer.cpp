@@ -163,7 +163,6 @@ void parseNodes(SCN::Node* node, Camera* cam) {
 	}
 }
 
-
 void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 	// HERE =====================
 	// TODO: GENERATE RENDERABLES
@@ -231,25 +230,16 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		MotionBlurData& data = pair.second;
 
 		data.prev_model = data.current_model;
-		data.current_model = node->model;
-
-		
+		data.current_model = node->model;	
 	}
 	
 	if (scene_blur_object)
 	{
-		//Call update function
 		float dt = CORE::getTime();
-
 		dt /= 1000.f;
-
 		update(dt);
 	}
 
-	
-	
-
-	//set the clear color (the background color)
 	glClearColor(scene->background_color.x, scene->background_color.y, scene->background_color.z, 1.0);
 
 	// Clear the color and the depth buffer
@@ -320,14 +310,15 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		}
 		else if (use_ssao) {
 			copyDepthBuffer(gbuffer_fbo, ssao_fbo);
-			if (use_ssao_plus)
+
+			if (ssao_kernel_size != last_ssao_kernel_size ||
+				ssao_radius != last_ssao_radius ||
+				use_ssao_plus != last_ssao_plus)
 			{
-				generateSpherePoints(ssao_kernel_size, ssao_radius, true);
-
-			}
-			else {
-				generateSpherePoints(ssao_kernel_size, ssao_radius, false);
-
+				generateSpherePoints(ssao_kernel_size, ssao_radius, use_ssao_plus);
+				last_ssao_kernel_size = ssao_kernel_size;
+				last_ssao_radius = ssao_radius;
+				last_ssao_plus = use_ssao_plus;
 			}
 
 			ssao_fbo->bind();
@@ -1448,6 +1439,18 @@ void Renderer::showUI()
 			light_volume = true;
 			use_ssao = false;
 			use_hdr = false;
+
+			// Motion Blur 
+			ImGui::Checkbox("Motion Blur", &use_motion_blur);
+			if (use_motion_blur)
+			{
+				ImGui::Indent();
+				ImGui::SliderFloat("Motion Blur Strength", &motion_blur_strength, 0.0f, 5.0f);
+				ImGui::SliderInt("Motion Blur Samples", &motion_blur_samples, 4, 32);
+				ImGui::Checkbox("Per-Object Motion Blur", &use_object_motion_blur);
+				ImGui::Unindent();
+			}
+
 			break;
 
 		case 2: // SSAO
@@ -1478,22 +1481,25 @@ void Renderer::showUI()
 			ImGui::Combo("Tone Mapping", &tone_operator, tone_ops, IM_ARRAYSIZE(tone_ops));
 			ImGui::SliderFloat("HDR Exposure", &exposure, 0.1f, 5.0f);
 			ImGui::Checkbox("Apply Gamma Correction", &apply_gamma);
+
+			// Motion Blur 
+			ImGui::Checkbox("Motion Blur", &use_motion_blur);
+			if (use_motion_blur)
+			{
+				ImGui::Indent();
+				ImGui::SliderFloat("Motion Blur Strength", &motion_blur_strength, 0.0f, 5.0f);
+				ImGui::SliderInt("Motion Blur Samples", &motion_blur_samples, 4, 32);
+				ImGui::Checkbox("Per-Object Motion Blur", &use_object_motion_blur);
+				ImGui::Unindent();
+			}
+
 			break;
 		}
 
 		ImGui::Unindent();
 	}
 
-	// Motion Blur (independiente del modo de renderizado)
-	ImGui::Checkbox("Motion Blur", &use_motion_blur);
-	if (use_motion_blur)
-	{
-		ImGui::Indent();
-		ImGui::SliderFloat("Motion Blur Strength", &motion_blur_strength, 0.0f, 5.0f);
-		ImGui::SliderInt("Motion Blur Samples", &motion_blur_samples, 4, 32);
-		ImGui::Checkbox("Per-Object Motion Blur", &use_object_motion_blur);
-		ImGui::Unindent();
-	}
+	
 
 	// Scene Blur (opción independiente)
 	ImGui::Checkbox("Scene - Blur per Object", &scene_blur_object);

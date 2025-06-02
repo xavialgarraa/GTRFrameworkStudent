@@ -57,6 +57,10 @@ namespace SCN {
 
 		bool scene_blur_object;
 
+		int last_ssao_kernel_size = -1;
+		float last_ssao_radius = -1.0f;
+		bool last_ssao_plus = false;
+
 		float shadow_bias = 0.003f;
 		float amplitud;
 		float frecuencia;
