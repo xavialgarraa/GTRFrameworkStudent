@@ -358,12 +358,9 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		renderDeferredSinglePass();
 
 		if (use_motion_blur) {
-			// Aquí estás copiando el resultado de lighting_fbo, pero ¡no has renderizado ahí!
-			// Arreglar:
 			motion_blur_fbo->bind();
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-			// Usa gbuffer_fbo o lo que contenga tu frame final (lighting_fbo puede no tener datos aquí)
 			gbuffer_fbo->color_textures[0]->toViewport();
 			motion_blur_fbo->unbind();
 
@@ -371,7 +368,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 			motion_blur_fbo->color_textures[0]->toViewport();
 		}
 		else {
-			gbuffer_fbo->color_textures[0]->toViewport(); // mejor esto que lighting_fbo aquí
+			gbuffer_fbo->color_textures[0]->toViewport();
 		}
 	}
 
