@@ -14,6 +14,9 @@ light_volume light_volume.vs light_volume.fs
 deferred_ambient quad.vs deferred_ambient.fs
 ssao quad.vs ssao.fs
 tonemap quad.vs tonemap.fs
+velocity velocity.vs velocity.fs
+motion_blur motion_blur.vs motion_blur.fs
+
 
 \test.cs
 #version 430 core
@@ -590,6 +593,7 @@ in vec3 v_world_position;
 
 layout(location = 0) out vec4 gbuffer_albedo;
 layout(location = 1) out vec4 gbuffer_normal;
+layout(location = 2) out vec3 u_screen_position;
 
 uniform sampler2D u_color_texture;
 uniform sampler2D u_metallic_roughness_texture;
@@ -612,6 +616,8 @@ void main()
     // Encode normal a [0,1] per emmagatzemar-la com a textura
     vec3 encoded_normal = normalize(v_normal) * 0.5 + 0.5;
     gbuffer_normal = vec4(encoded_normal, 1.0);
+
+    u_screen_position = v_world_position;
 }
 
 
@@ -1114,4 +1120,196 @@ void main()
         mapped = pow(mapped, vec3(1.0 / 2.2));
 
     FragColor = vec4(mapped, 1.0);
+}
+
+\velocity.vs
+// ============ VELOCITY SHADER ============
+// velocity.vs (Vertex Shader)
+#version 330 core
+
+in vec3 a_vertex;
+
+uniform mat4 u_model;
+uniform mat4 u_view_projection;
+uniform mat4 u_prev_view_projection;
+uniform mat4 u_prev_model;
+
+// Para per-object motion blur
+uniform mat4 u_current_mvp;
+uniform mat4 u_prev_mvp;
+
+out vec4 v_current_pos;
+out vec4 v_prev_pos;
+
+void main() {
+    vec4 world_pos = u_model * vec4(a_vertex, 1.0);
+    vec4 prev_world_pos = u_prev_model * vec4(a_vertex, 1.0);
+    
+    // Posiciones en clip space
+    v_current_pos = u_view_projection * world_pos;
+    v_prev_pos = u_prev_view_projection * prev_world_pos;
+    
+    gl_Position = v_current_pos;
+}
+
+
+\velocity.fs
+#version 330 core
+
+// Inputs interpolados desde el vertex shader
+in vec4 v_current_pos;  // posición actual en clip space
+in vec4 v_prev_pos;     // posición del frame anterior en clip space
+
+layout(location = 0) out vec2 velocity_output;
+
+void main()
+{
+    // Convertir de clip space a NDC
+    vec2 current_ndc = v_current_pos.xy / v_current_pos.w;
+    vec2 prev_ndc = v_prev_pos.xy / v_prev_pos.w;
+
+    // Calcular vector de velocidad en screen space
+    vec2 velocity = (current_ndc - prev_ndc) * 0.5; // Escalado opcional a [-0.5, 0.5]
+
+    // Guardamos como salida en un render target RG
+    velocity_output = velocity;
+}
+
+
+\motion_blur.vs
+#version 330 core
+
+in vec3 a_vertex;
+in vec2 a_coord;
+
+out vec2 v_uv;
+
+void main() {
+    v_uv = a_coord;
+    gl_Position = vec4(a_vertex, 1.0);
+}
+
+\motion_blur.fs
+// motion_blur.fs (Fragment Shader)
+#version 330 core
+
+in vec2 v_uv;
+
+uniform sampler2D u_color_texture;
+uniform sampler2D u_velocity_texture;
+uniform sampler2D u_depth_texture;
+
+uniform float u_motion_blur_strength;
+uniform int u_motion_blur_samples;
+uniform bool u_use_object_motion_blur;
+uniform vec2 u_texel_size;
+
+out vec4 fragColor;
+
+// Función para obtener depth linearizado
+float linearizeDepth(float depth, float near, float far) {
+    return (2.0 * near * far) / (far + near - depth * (far - near));
+}
+
+void main() {
+    vec2 velocity = texture(u_velocity_texture, v_uv).xy;
+    
+    // Escalar velocidad por fuerza del motion blur
+    velocity *= u_motion_blur_strength;
+    
+    // Si la velocidad es muy pequeña, no aplicar blur
+    float velocity_length = length(velocity);
+    if (velocity_length < 0.001) {
+        fragColor = texture(u_color_texture, v_uv);
+        return;
+    }
+    
+    vec3 color = vec3(0.0);
+    float total_weight = 0.0;
+    
+    // Sampling pattern para motion blur
+    for (int i = 0; i < u_motion_blur_samples; ++i) {
+        float t = float(i) / float(u_motion_blur_samples - 1);
+        t = t * 2.0 - 1.0; // Rango [-1, 1]
+        
+        vec2 sample_uv = v_uv + velocity * t;
+        
+        // Verificar bounds
+        if (sample_uv.x >= 0.0 && sample_uv.x <= 1.0 && 
+            sample_uv.y >= 0.0 && sample_uv.y <= 1.0) {
+            
+            vec3 sample_color = texture(u_color_texture, sample_uv).rgb;
+            
+            // Peso basado en la distancia al centro
+            float weight = 1.0 - abs(t);
+            
+            // Opcional: peso basado en profundidad para evitar bleeding
+            float center_depth = texture(u_depth_texture, v_uv).r;
+            float sample_depth = texture(u_depth_texture, sample_uv).r;
+            float depth_diff = abs(center_depth - sample_depth);
+            
+            if (depth_diff < 0.01) { // Threshold para depth similarity
+                color += sample_color * weight;
+                total_weight += weight;
+            }
+        }
+    }
+    
+    if (total_weight > 0.0) {
+        color /= total_weight;
+    } else {
+        color = texture(u_color_texture, v_uv).rgb;
+    }
+    
+    fragColor = vec4(color, 1.0);
+}
+
+\motion_blur_camera.fs
+// ============ SHADER ALTERNATIVO PARA CAMERA MOTION BLUR ============
+// camera_motion_blur.fs - Más simple, solo basado en posición de screen
+#version 330 core
+
+in vec2 v_uv;
+
+uniform sampler2D u_color_texture;
+uniform sampler2D u_depth_texture;
+uniform mat4 u_current_view_projection;
+uniform mat4 u_prev_view_projection;
+uniform mat4 u_inverse_view_projection;
+uniform float u_motion_blur_strength;
+uniform int u_motion_blur_samples;
+
+out vec4 fragColor;
+
+void main() {
+    float depth = texture(u_depth_texture, v_uv).r;
+    
+    // Reconstruir posición mundial
+    vec4 clip_pos = vec4(v_uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 world_pos = u_inverse_view_projection * clip_pos;
+    world_pos /= world_pos.w;
+    
+    // Calcular posiciones en frames actual y anterior
+    vec4 current_clip = u_current_view_projection * world_pos;
+    vec4 prev_clip = u_prev_view_projection * world_pos;
+    
+    vec2 current_screen = (current_clip.xy / current_clip.w) * 0.5 + 0.5;
+    vec2 prev_screen = (prev_clip.xy / prev_clip.w) * 0.5 + 0.5;
+    
+    vec2 velocity = (current_screen - prev_screen) * u_motion_blur_strength;
+    
+    // Aplicar motion blur
+    vec3 color = vec3(0.0);
+    for (int i = 0; i < u_motion_blur_samples; ++i) {
+        float t = float(i) / float(u_motion_blur_samples - 1) * 2.0 - 1.0;
+        vec2 sample_uv = v_uv + velocity * t;
+        
+        if (sample_uv.x >= 0.0 && sample_uv.x <= 1.0 && 
+            sample_uv.y >= 0.0 && sample_uv.y <= 1.0) {
+            color += texture(u_color_texture, sample_uv).rgb;
+        }
+    }
+    
+    color /= float(u_motion_blur_samples);
+    fragColor = vec4(color, 1.0);
 }

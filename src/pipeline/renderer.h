@@ -60,8 +60,14 @@ namespace SCN {
 		float shadow_bias = 0.003f;
 		float amplitud;
 		float frecuencia;
+		bool use_motion_blur;
 
 		bool front_face_culling;
+		float motion_blur_strength;
+		bool use_object_motion_blur;
+		int motion_blur_samples;
+		bool has_prev_view_projection = false;
+
 
 		// In Renderer.h
 		GFX::FBO* ssao_fbo;
@@ -132,6 +138,10 @@ namespace SCN {
 		void renderToTonemap();
 
 		void renderLightVolumes(Camera* camera);
+		void renderMotionVectors();
+		SCN::Node* findNodeForName(std::string name);
+		void applyMotionBlur();
+
 
 		void showUI();
 
