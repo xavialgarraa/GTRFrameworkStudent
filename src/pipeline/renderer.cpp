@@ -266,141 +266,36 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	if (skybox_cubemap)
 		renderSkybox(skybox_cubemap);
 
-	
-	if (light_volume)
+	if (use_deferred)
 	{
+		if (light_volume)
+		{
 
-		copyDepthBuffer(gbuffer_fbo, lighting_fbo);
+			copyDepthBuffer(gbuffer_fbo, lighting_fbo);
 
-		lighting_fbo->bind();
-		glClear(GL_COLOR_BUFFER_BIT);
-
-		glDisable(GL_BLEND);
-		glDepthMask(GL_FALSE);
-		glDepthFunc(GL_LEQUAL);
-
-		//render skybox
-		if (skybox_cubemap)
-			renderSkybox(skybox_cubemap);
-
-		renderDeferredAmbientPass();
-		renderDirectionalLights();
-
-
-		renderLightVolumes(camera);
-
-
-		// 8. Unbind lighting FBO
-		lighting_fbo->unbind();
-
-		// 9. Mostrar resultado final
-		lighting_fbo->color_textures[0]->toViewport();
-
-		if (use_motion_blur) {
-			// Aquí estás copiando el resultado de lighting_fbo, pero ¡no has renderizado ahí!
-			// Arreglar:
-			motion_blur_fbo->bind();
+			lighting_fbo->bind();
 			glClear(GL_COLOR_BUFFER_BIT);
 
 			glDisable(GL_BLEND);
 			glDepthMask(GL_FALSE);
 			glDepthFunc(GL_LEQUAL);
-
-			//// Usa gbuffer_fbo o lo que contenga tu frame final (lighting_fbo puede no tener datos aquí)
-			//lighting_fbo->color_textures[0]->toViewport();
-
-			applyMotionBlur();
-
-			motion_blur_fbo->unbind();
-
-			motion_blur_fbo->color_textures[0]->toViewport();
-		}
-
-	}
-	else if (use_ssao) {
-		copyDepthBuffer(gbuffer_fbo, ssao_fbo);
-		if (use_ssao_plus)
-		{
-			generateSpherePoints(ssao_kernel_size, ssao_radius, true);
-
-		}
-		else {
-			generateSpherePoints(ssao_kernel_size, ssao_radius, false);
-
-		}
-
-		ssao_fbo->bind();
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-		glDisable(GL_BLEND);
-		glDepthMask(GL_FALSE);
-		glDepthFunc(GL_LEQUAL);
-
-		//render skybox
-		if (skybox_cubemap)
-			renderSkybox(skybox_cubemap);
-
-		renderSSAO(Camera::current);
-
-		// 8. Unbind lighting FBO
-		ssao_fbo->unbind();
-
-		// 9. Mostrar resultado final
-		ssao_fbo->color_textures[0]->toViewport();
-
-		//blurSSAOTexture();
-
-		if (ssao_plus_deferred) {
-
-			//2.2
-			// Restaurar estado OpenGL
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-			glViewport(0, 0, gbuffer_fbo->width, gbuffer_fbo->height);
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-			glDepthMask(GL_TRUE);
-			glDepthFunc(GL_LESS);
-			glDisable(GL_BLEND);
 
 			//render skybox
 			if (skybox_cubemap)
 				renderSkybox(skybox_cubemap);
 
-			// Render simple pass
-			renderDeferredSinglePass();
-		}
-	}
-	else if (use_hdr)
-		{
-			//2.2
-			
-
-			hdr_fbo->bind();
-			glClearColor(0, 0, 0, 1);
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-			// Render scene (deferred simple pass)
-			renderDeferredSinglePass();
+			renderDeferredAmbientPass();
+			renderDirectionalLights();
 
 
-			hdr_fbo->unbind();
+			renderLightVolumes(camera);
 
-			copyDepthBuffer(hdr_fbo, tonemap_fbo);
 
-			tonemap_fbo->bind();
-			glClear(GL_COLOR_BUFFER_BIT);
+			// 8. Unbind lighting FBO
+			lighting_fbo->unbind();
 
-			glDisable(GL_BLEND);
-			glDepthMask(GL_FALSE);
-			glDepthFunc(GL_LEQUAL);
-
-			// Tone mapping final al quad
-			renderToTonemap();
-			
-			tonemap_fbo->unbind();
-
-			tonemap_fbo->color_textures[0]->toViewport();
-
-		
+			// 9. Mostrar resultado final
+			lighting_fbo->color_textures[0]->toViewport();
 
 			if (use_motion_blur) {
 				// Aquí estás copiando el resultado de lighting_fbo, pero ¡no has renderizado ahí!
@@ -423,51 +318,209 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 			}
 
 		}
-	else {
-		renderDeferredSinglePass();
+		else if (use_ssao) {
+			copyDepthBuffer(gbuffer_fbo, ssao_fbo);
+			if (use_ssao_plus)
+			{
+				generateSpherePoints(ssao_kernel_size, ssao_radius, true);
 
-		if (use_motion_blur) {
-			// Aquí estás copiando el resultado de lighting_fbo, pero ¡no has renderizado ahí!
-			// Arreglar:
-			motion_blur_fbo->bind();
+			}
+			else {
+				generateSpherePoints(ssao_kernel_size, ssao_radius, false);
+
+			}
+
+			ssao_fbo->bind();
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-			// Usa gbuffer_fbo o lo que contenga tu frame final (lighting_fbo puede no tener datos aquí)
-			gbuffer_fbo->color_textures[0]->toViewport();
-			motion_blur_fbo->unbind();
+			glDisable(GL_BLEND);
+			glDepthMask(GL_FALSE);
+			glDepthFunc(GL_LEQUAL);
 
-			applyMotionBlur();
-			motion_blur_fbo->color_textures[0]->toViewport();
+			//render skybox
+			if (skybox_cubemap)
+				renderSkybox(skybox_cubemap);
+
+			renderSSAO(Camera::current);
+
+			// 8. Unbind lighting FBO
+			ssao_fbo->unbind();
+
+			// 9. Mostrar resultado final
+			ssao_fbo->color_textures[0]->toViewport();
+
+			//blurSSAOTexture();
+
+			if (ssao_plus_deferred) {
+
+				//2.2
+				// Restaurar estado OpenGL
+				glBindFramebuffer(GL_FRAMEBUFFER, 0);
+				glViewport(0, 0, gbuffer_fbo->width, gbuffer_fbo->height);
+				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+				glDepthMask(GL_TRUE);
+				glDepthFunc(GL_LESS);
+				glDisable(GL_BLEND);
+
+				//render skybox
+				if (skybox_cubemap)
+					renderSkybox(skybox_cubemap);
+
+				// Render simple pass
+				renderDeferredSinglePass();
+			}
 		}
+		else if (use_hdr)
+			{
+				//2.2
+			
+
+				hdr_fbo->bind();
+				glClearColor(0, 0, 0, 1);
+				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+				// Render scene (deferred simple pass)
+				renderDeferredSinglePass();
+
+
+				hdr_fbo->unbind();
+
+				copyDepthBuffer(hdr_fbo, tonemap_fbo);
+
+				tonemap_fbo->bind();
+				glClear(GL_COLOR_BUFFER_BIT);
+
+				glDisable(GL_BLEND);
+				glDepthMask(GL_FALSE);
+				glDepthFunc(GL_LEQUAL);
+
+				// Tone mapping final al quad
+				renderToTonemap();
+			
+				tonemap_fbo->unbind();
+
+				tonemap_fbo->color_textures[0]->toViewport();
+
+		
+
+				if (use_motion_blur) {
+					// Aquí estás copiando el resultado de lighting_fbo, pero ¡no has renderizado ahí!
+					// Arreglar:
+					motion_blur_fbo->bind();
+					glClear(GL_COLOR_BUFFER_BIT);
+
+					glDisable(GL_BLEND);
+					glDepthMask(GL_FALSE);
+					glDepthFunc(GL_LEQUAL);
+
+					//// Usa gbuffer_fbo o lo que contenga tu frame final (lighting_fbo puede no tener datos aquí)
+					//lighting_fbo->color_textures[0]->toViewport();
+
+					applyMotionBlur();
+
+					motion_blur_fbo->unbind();
+
+					motion_blur_fbo->color_textures[0]->toViewport();
+				}
+
+			}
 		else {
-			gbuffer_fbo->color_textures[0]->toViewport(); // mejor esto que lighting_fbo aquí
+			//2.2
+			// Restaurar estado OpenGL
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+			glViewport(0, 0, gbuffer_fbo->width, gbuffer_fbo->height);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			glDepthMask(GL_TRUE);
+			glDepthFunc(GL_LESS);
+			glDisable(GL_BLEND);
+
+			//render skybox
+			if (skybox_cubemap)
+				renderSkybox(skybox_cubemap);
+
+			// Render simple pass
+			renderDeferredSinglePass();
+
+			if (use_motion_blur) {
+				// Aquí estás copiando el resultado de lighting_fbo, pero ¡no has renderizado ahí!
+				// Arreglar:
+				motion_blur_fbo->bind();
+				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+				// Usa gbuffer_fbo o lo que contenga tu frame final (lighting_fbo puede no tener datos aquí)
+				gbuffer_fbo->color_textures[0]->toViewport();
+				motion_blur_fbo->unbind();
+
+				applyMotionBlur();
+				motion_blur_fbo->color_textures[0]->toViewport();
+			}
+			
 		}
-	}
-
-	// Enable blending for transparent objects
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-	//transparent objects
-	std::vector<sDrawCommand> transparent_commands;
-	// Sort transparent commands back-to-front
-	std::sort(transparent_commands.begin(), transparent_commands.end(), [](const sDrawCommand& a, const sDrawCommand& b) {
-		return a.distance_to_camera > b.distance_to_camera;
-		});
-
-	// Enable blending for transparent objects
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-	// Render transparent objects last
-	for (const sDrawCommand& command : transparent_commands) {
-		renderMeshWithMaterial(command.model, command.mesh, command.material);
-	}
-
-	// Disable blending for next frame
-	glDisable(GL_BLEND);
-
 	
+		// Enable blending for transparent objects
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+		//transparent objects
+		std::vector<sDrawCommand> transparent_commands;
+		// Sort transparent commands back-to-front
+		std::sort(transparent_commands.begin(), transparent_commands.end(), [](const sDrawCommand& a, const sDrawCommand& b) {
+			return a.distance_to_camera > b.distance_to_camera;
+			});
+
+		// Enable blending for transparent objects
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+		// Render transparent objects last
+		for (const sDrawCommand& command : transparent_commands) {
+			renderMeshWithMaterial(command.model, command.mesh, command.material);
+		}
+
+		// Disable blending for next frame
+		glDisable(GL_BLEND);
+	}
+	else {
+		// Separate opaque and transparent objects
+		std::vector<sDrawCommand> opaque_commands;
+		std::vector<sDrawCommand> transparent_commands;
+
+		for (const sDrawCommand& command : draw_command_list) {
+			if (command.material && command.material->alpha_mode == SCN::eAlphaMode::BLEND) {
+				transparent_commands.push_back(command);
+			}
+			else {
+				opaque_commands.push_back(command);
+			}
+		}
+
+		// Sort opaque commands front-to-back
+		std::sort(opaque_commands.begin(), opaque_commands.end(), [](const sDrawCommand& a, const sDrawCommand& b) {
+			return a.distance_to_camera < b.distance_to_camera;
+			});
+
+		// Sort transparent commands back-to-front
+		std::sort(transparent_commands.begin(), transparent_commands.end(), [](const sDrawCommand& a, const sDrawCommand& b) {
+			return a.distance_to_camera > b.distance_to_camera;
+			});
+
+		// Render opaque objects first
+		for (const sDrawCommand& command : opaque_commands) {
+			renderMeshWithMaterial(command.model, command.mesh, command.material);
+		}
+
+		// Enable blending for transparent objects
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+		// Render transparent objects last
+		for (const sDrawCommand& command : transparent_commands) {
+			renderMeshWithMaterial(command.model, command.mesh, command.material);
+		}
+
+		// Disable blending for next frame
+		glDisable(GL_BLEND);
+	}
 
 	
 
@@ -541,104 +594,177 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	Camera* camera = Camera::current;
 	glEnable(GL_DEPTH_TEST);
 
-	
+	if (use_multipass)
+	{
+		// 1. Ambient Pass
+		GFX::Shader* ambient_shader = GFX::Shader::Get("phong_multipass_ambient");
+		if (ambient_shader)
+		{
+			ambient_shader->enable();
+
+			material->bind(ambient_shader);
+			ambient_shader->setUniform("u_model", model);
+			ambient_shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+			ambient_shader->setUniform("u_camera_position", camera->eye);
+			ambient_shader->setUniform("u_ambient_light", scene->ambient_light);
+			ambient_shader->setUniform("u_alpha_cutoff", material->alpha_cutoff);
+
+			if (material->alpha_mode == SCN::eAlphaMode::BLEND) {
+				glDepthMask(GL_FALSE);
+				glEnable(GL_BLEND);
+				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			}
+			else {
+				glDepthMask(GL_TRUE);
+				glDisable(GL_BLEND);
+			}
+
+			mesh->render(GL_TRIANGLES);
+			ambient_shader->disable();
+		}
+
+		// 2. Light Pass
+		if (material->alpha_mode != SCN::eAlphaMode::BLEND) {
+			GFX::Shader* light_shader = GFX::Shader::Get("phong_multipass_light");
+			if (light_shader && !light_list.empty())
+			{
+				light_shader->enable();
+
+				material->bind(light_shader);
+				light_shader->setUniform("u_model", model);
+				light_shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+				light_shader->setUniform("u_camera_position", camera->eye);
+				light_shader->setUniform("u_shininess", 1.0f - material->roughness_factor);
+				light_shader->setUniform("u_alpha_cutoff", material->alpha_cutoff);
+
+				// Additive blending
+				glEnable(GL_BLEND);
+				glBlendFunc(GL_ONE, GL_ONE);
+				glDepthFunc(GL_EQUAL);
+				glDepthMask(GL_FALSE);
+
+				for (LightEntity* light : light_list)
+				{
+					light_shader->setUniform("u_light_pos", light->root.getGlobalMatrix().getTranslation());
+					light_shader->setUniform("u_light_color", light->color);
+					light_shader->setUniform("u_light_intensity", light->intensity);
+					light_shader->setUniform("u_light_type", int(light->light_type));
+					light_shader->setUniform("u_light_dir", light->root.model.frontVector());
+					light_shader->setUniform("u_light_cone", light->cone_info);
+
+					mesh->render(GL_TRIANGLES);
+				}
+
+				light_shader->disable();
+
+				glDepthFunc(GL_LESS);
+				glDepthMask(GL_TRUE);
+				glDisable(GL_BLEND);
+			}
+		}
+
+		glPolygonMode(GL_FRONT_AND_BACK, render_wireframe ? GL_LINE : GL_FILL);
+	}
+	else {
 
 		// Single Pass:
 	//chose a shader based on material properties
-	GFX::Shader* shader = NULL;
-	shader = GFX::Shader::Get("phong");
+		GFX::Shader* shader = NULL;
+		shader = GFX::Shader::Get("phong");
 
-	assert(glGetError() == GL_NO_ERROR);
+		assert(glGetError() == GL_NO_ERROR);
 
-	//no shader? then nothing to render
-	if (!shader)
-		return;
-	shader->enable();
+		//no shader? then nothing to render
+		if (!shader)
+			return;
+		shader->enable();
 
 
 
-	material->bind(shader);
-	//shader->setUniform("u_shininess", 1.0f - material->roughness_factor); // Convert roughness to shininess
+		material->bind(shader);
+		//shader->setUniform("u_shininess", 1.0f - material->roughness_factor); // Convert roughness to shininess
 
-	shader->setUniform("u_shininess", material->shininess); // Convert roughness to shininess
+		shader->setUniform("u_shininess", material->shininess); // Convert roughness to shininess
 
-	//send lights
-	vec3* light_pos = new vec3[light_list.size()];
-	vec3* light_color = new vec3[light_list.size()];
-	float* light_int = new float[light_list.size()];
-	vec3* light_dir = new vec3[light_list.size()];
-	int* light_type = new int[light_list.size()];
-	vec2* cone_info = new vec2[light_list.size()];
-	Matrix44* shadow_mat = new Matrix44[light_list.size()];
+		//send lights
+		vec3* light_pos = new vec3[light_list.size()];
+		vec3* light_color = new vec3[light_list.size()];
+		float* light_int = new float[light_list.size()];
+		vec3* light_dir = new vec3[light_list.size()];
+		int* light_type = new int[light_list.size()];
+		vec2* cone_info = new vec2[light_list.size()];
+		Matrix44* shadow_mat = new Matrix44[light_list.size()];
 
-	int i = 0;
+		int i = 0;
 
-	for (LightEntity* light : light_list) {
-		light_pos[i] = light->root.getGlobalMatrix().getTranslation();
-		light_int[i] = light->intensity;
-		light_color[i] = light->color;
-		light_dir[i] = light->root.model.frontVector();
-		light_type[i] = light->light_type;
-		cone_info[i] = light->cone_info;
-		shadow_mat[i] = light->view_projection;
-		i++;
+		for (LightEntity* light : light_list) {
+			light_pos[i] = light->root.getGlobalMatrix().getTranslation();
+			light_int[i] = light->intensity;
+			light_color[i] = light->color;
+			light_dir[i] = light->root.model.frontVector();
+			light_type[i] = light->light_type;
+			cone_info[i] = light->cone_info;
+			shadow_mat[i] = light->view_projection;
+			i++;
+		}
+
+		shader->setUniform("u_numShadows", (int)min(light_list.size(), 10));
+		shader->setUniform("u_bias", shadow_bias);
+		shader->setUniform("u_light_count", (int)min(light_list.size(), 10));
+		shader->setUniform3Array("u_light_pos", (float*)light_pos, min(light_list.size(), 10));
+		shader->setUniform3Array("u_light_color", (float*)light_color, min(light_list.size(), 10));
+		shader->setUniform1Array("u_light_intensity", light_int, min(light_list.size(), 10));
+		shader->setUniform1Array("u_light_type", (int*)light_type, min(light_list.size(), 10));
+		shader->setUniform3Array("u_light_dir", (float*)light_dir, min(light_list.size(), 10));
+		shader->setUniform2Array("u_light_cone", (float*)cone_info, min(light_list.size(), 10));
+		shader->setUniform("u_ambient_light", scene->ambient_light);
+
+		// We uploaded all the shadow maps manual
+		shader->setUniform("u_shadow_map_0", (shadow_fbos[0]->depth_texture), 2); //SPOT
+		//shader->setUniform("u_shadow_map_1", (shadow_fbos[1]->depth_texture), 3);
+		//shader->setUniform("u_shadow_map_2", (shadow_fbos[2]->depth_texture), 4);
+		shader->setUniform("u_shadow_map_3", (shadow_fbos[3]->depth_texture), 5); //DIRECTIONAL
+
+		shader->setUniform("u_shadow_matrix_0", shadow_mat[0]); //SPOT
+		//shader->setUniform("u_shadow_matrix_1", shadow_mat[1]);
+		//shader->setUniform("u_shadow_matrix_2", shadow_mat[2]);
+		shader->setUniform("u_shadow_matrix_3", shadow_mat[3]); //DIRECTIONAL
+
+		delete[] light_pos;
+		delete[] light_color;
+		delete[] light_int;
+		delete[] light_dir;
+		delete[] cone_info;
+		delete[] light_type;
+		delete[] shadow_mat;
+
+
+		//upload uniforms
+		shader->setUniform("u_model", model);
+		shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+		shader->setUniform("u_camera_position", camera->eye);
+
+
+
+		// Upload time, for cool shader effects
+		float t = getTime();
+		shader->setUniform("u_time", t);
+
+		// Render just the verticies as a wireframe
+		if (render_wireframe)
+			glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+		//do the draw call that renders the mesh into the screen
+		mesh->render(GL_TRIANGLES);
+
+		//disable shader
+		shader->disable();
+
+		//set the render state as it was before to avoid problems with future renders
+		glDisable(GL_BLEND);
+		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
 	}
-
-	shader->setUniform("u_numShadows", (int)min(light_list.size(), 10));
-	shader->setUniform("u_bias", shadow_bias);
-	shader->setUniform("u_light_count", (int)min(light_list.size(), 10));
-	shader->setUniform3Array("u_light_pos", (float*)light_pos, min(light_list.size(), 10));
-	shader->setUniform3Array("u_light_color", (float*)light_color, min(light_list.size(), 10));
-	shader->setUniform1Array("u_light_intensity", light_int, min(light_list.size(), 10));
-	shader->setUniform1Array("u_light_type", (int*)light_type, min(light_list.size(), 10));
-	shader->setUniform3Array("u_light_dir", (float*)light_dir, min(light_list.size(), 10));
-	shader->setUniform2Array("u_light_cone", (float*)cone_info, min(light_list.size(), 10));
-	shader->setUniform("u_ambient_light", scene->ambient_light);
-
-	// We uploaded all the shadow maps manual
-	shader->setUniform("u_shadow_map_0", (shadow_fbos[0]->depth_texture), 2); //SPOT
-	//shader->setUniform("u_shadow_map_1", (shadow_fbos[1]->depth_texture), 3);
-	//shader->setUniform("u_shadow_map_2", (shadow_fbos[2]->depth_texture), 4);
-	shader->setUniform("u_shadow_map_3", (shadow_fbos[3]->depth_texture), 5); //DIRECTIONAL
-
-	shader->setUniform("u_shadow_matrix_0", shadow_mat[0]); //SPOT
-	//shader->setUniform("u_shadow_matrix_1", shadow_mat[1]);
-	//shader->setUniform("u_shadow_matrix_2", shadow_mat[2]);
-	shader->setUniform("u_shadow_matrix_3", shadow_mat[3]); //DIRECTIONAL
-
-	delete[] light_pos;
-	delete[] light_color;
-	delete[] light_int;
-	delete[] light_dir;
-	delete[] cone_info;
-	delete[] light_type;
-	delete[] shadow_mat;
-
-
-	//upload uniforms
-	shader->setUniform("u_model", model);
-	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
-	shader->setUniform("u_camera_position", camera->eye);
-
-
-
-	// Upload time, for cool shader effects
-	float t = getTime();
-	shader->setUniform("u_time", t);
-
-	// Render just the verticies as a wireframe
-	if (render_wireframe)
-		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-
-	//do the draw call that renders the mesh into the screen
-	mesh->render(GL_TRIANGLES);
-
-	//disable shader
-	shader->disable();
-
-	//set the render state as it was before to avoid problems with future renders
-	glDisable(GL_BLEND);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
 }
 
@@ -851,6 +977,7 @@ void Renderer::applyMotionBlur() {
 	motion_blur_shader->disable();
 	//motion_blur_fbo->unbind();
 }
+
 void Renderer::renderDeferredSinglePass()
 {
 	Camera* camera = Camera::current;
@@ -1280,58 +1407,101 @@ void Renderer::restoreDefaultRenderState() {
 
 void Renderer::showUI()
 {
+	// Configuración básica de renderizado
 	ImGui::Checkbox("Wireframe", &render_wireframe);
 	ImGui::Checkbox("Boundaries", &render_boundaries);
 	ImGui::SliderFloat("Shadow Bias", &shadow_bias, 0.0f, 0.01f);
 	ImGui::Checkbox("Front Face Culling", &front_face_culling);
-	ImGui::Checkbox("Deferred Rendering", &use_deferred);
-	ImGui::Checkbox("Deferred - Light Volume", &light_volume);
-	ImGui::Checkbox("Scene - Blur per Object", &scene_blur_object);
-	if (scene_blur_object)
+
+	// Modos de renderizado: Deferred o Multipass (mutuamente excluyentes)
+	bool deferred_selected = use_deferred;
+	bool multipass_selected = use_multipass;
+
+	if (ImGui::Checkbox("Deferred Rendering", &deferred_selected)) {
+		use_deferred = deferred_selected;
+		if (use_deferred) use_multipass = false;
+	}
+
+	if (ImGui::Checkbox("Multipass Rendering", &multipass_selected)) {
+		use_multipass = multipass_selected;
+		if (use_multipass) use_deferred = false;
+	}
+
+	if (use_deferred)
 	{
-		ImGui::SliderFloat("Car - Frequency", &frecuencia, 0.05f, 1.0f);
+		ImGui::Indent();
 
+		// Opciones específicas de deferred rendering
+		const char* deferred_modes[] = { "Single Pass", "Light Volumes", "SSAO", "HDR" };
+		static int current_deferred_mode = 0;
+		ImGui::Combo("Deferred Mode", &current_deferred_mode, deferred_modes, IM_ARRAYSIZE(deferred_modes));
+
+		switch (current_deferred_mode)
+		{
+		case 0: // Single Pass
+			light_volume = false;
+			use_ssao = false;
+			use_hdr = false;
+			break;
+
+		case 1: // Light Volumes
+			light_volume = true;
+			use_ssao = false;
+			use_hdr = false;
+			break;
+
+		case 2: // SSAO
+			light_volume = false;
+			use_ssao = true;
+			use_hdr = false;
+
+			ImGui::Checkbox("SSAO+", &use_ssao_plus);
+			ImGui::SliderFloat("SSAO Radius", &ssao_radius, 0.01f, 2.0f);
+			ImGui::SliderInt("SSAO Samples", &ssao_kernel_size, 1, 64);
+
+			if (use_ssao_plus)
+			{
+				ImGui::Checkbox("SSAO + Deferred", &ssao_plus_deferred);
+				if (ssao_plus_deferred)
+				{
+					ImGui::SliderFloat("Ambient Intensity", &ambient_intensity, 0.1f, 1.0f);
+				}
+			}
+			break;
+
+		case 3: // HDR
+			light_volume = false;
+			use_ssao = false;
+			use_hdr = true;
+
+			const char* tone_ops[] = { "Linear", "Reinhard", "ACES" };
+			ImGui::Combo("Tone Mapping", &tone_operator, tone_ops, IM_ARRAYSIZE(tone_ops));
+			ImGui::SliderFloat("HDR Exposure", &exposure, 0.1f, 5.0f);
+			ImGui::Checkbox("Apply Gamma Correction", &apply_gamma);
+			break;
+		}
+
+		ImGui::Unindent();
 	}
 
-
-	
-	if (light_volume)
-	{
-		use_deferred = true;
-	}
-
-	if (use_deferred == false) {
-		use_ssao = false;
-		use_hdr = false;
-	}
-
-	// In showUI()
-	ImGui::Checkbox("SSAO", &use_ssao);
-	if (use_ssao) {
-		ImGui::Checkbox("SSAO+", &use_ssao_plus);
-		ImGui::SliderFloat("SSAO Radius", &ssao_radius, 0.01f, 2.0f);
-		ImGui::SliderInt("SSAO Samples", &ssao_kernel_size, 1, 64);
-	}
-
-	ImGui::Checkbox("SSAO + DEFERRED", &ssao_plus_deferred);
-	if (ssao_plus_deferred) {
-		ImGui::SliderFloat("Ambient Intensity", &ambient_intensity, 0.1f, 1.0f);
-	}
-
-	ImGui::Checkbox("HDR", &use_hdr);
-	if (use_hdr) {
-		const char* tone_ops[] = { "Linear", "Reinhard", "ACES" };
-		ImGui::Combo("Tone Mapping", &tone_operator, tone_ops, IM_ARRAYSIZE(tone_ops));
-		ImGui::SliderFloat("HDR Exposure", &exposure, 0.1f, 5.0f);
-		ImGui::Checkbox("Apply Gamma Correction", &apply_gamma);
-	}
-
-	// En showUI()
+	// Motion Blur (independiente del modo de renderizado)
 	ImGui::Checkbox("Motion Blur", &use_motion_blur);
-	if (use_motion_blur) {
+	if (use_motion_blur)
+	{
+		ImGui::Indent();
 		ImGui::SliderFloat("Motion Blur Strength", &motion_blur_strength, 0.0f, 5.0f);
 		ImGui::SliderInt("Motion Blur Samples", &motion_blur_samples, 4, 32);
 		ImGui::Checkbox("Per-Object Motion Blur", &use_object_motion_blur);
+		ImGui::Unindent();
+	}
+
+	// Scene Blur (opción independiente)
+	ImGui::Checkbox("Scene - Blur per Object", &scene_blur_object);
+	if (scene_blur_object)
+	{
+		ImGui::Indent();
+		ImGui::SliderFloat("Car - Frequency", &frecuencia, 0.05f, 1.0f);
+		ImGui::Unindent();
 	}
 }
 

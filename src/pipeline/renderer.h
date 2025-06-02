@@ -61,6 +61,7 @@ namespace SCN {
 		float amplitud;
 		float frecuencia;
 		bool use_motion_blur;
+		bool use_multipass = false;
 
 		bool front_face_culling;
 		float motion_blur_strength;
@@ -141,6 +142,7 @@ namespace SCN {
 		void renderMotionVectors();
 		SCN::Node* findNodeForName(std::string name);
 		void applyMotionBlur();
+
 
 
 		void showUI();
