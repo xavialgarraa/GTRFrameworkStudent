@@ -190,8 +190,6 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 		{
 			car1 = ((Node*)&entity->root);
 			motion_data[car1];
-
-
 		}
 		
 		if (entity->name == "car2")
@@ -199,15 +197,12 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 			car2 = ((Node*)&entity->root);
 			car2->model._41 = -2.3f;
 			motion_data[car2];
-
 		}
 	}
 }
 
 void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 {
-	
-	
 	this->scene = scene;
 	setupScene();
 
@@ -217,10 +212,9 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 	parseSceneEntities(scene, camera);
 
-	renderShadowMap(scene); // 3.2.2 ASSIGNMENT 3
+	renderShadowMap(scene);
 	
-	if (!has_prev_view_projection)
-	{
+	if (!has_prev_view_projection) {
 		prev_view_projection = Camera::current->viewprojection_matrix;
 		has_prev_view_projection = true;
 	}
@@ -231,23 +225,14 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		MotionBlurData& data = pair.second;
 
 		data.prev_model = data.current_model;
-		data.current_model = node->model;
-
-		
+		data.current_model = node->model;	
 	}
 	
-	if (scene_blur_object)
-	{
-		//Call update function
+	if (scene_blur_object) {
 		float dt = CORE::getTime();
-
 		dt /= 1000.f;
-
 		update(dt);
 	}
-
-	
-	
 
 	//set the clear color (the background color)
 	glClearColor(scene->background_color.x, scene->background_color.y, scene->background_color.z, 1.0);
@@ -265,11 +250,8 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	//render skybox
 	if (skybox_cubemap)
 		renderSkybox(skybox_cubemap);
-
 	
-	if (light_volume)
-	{
-
+	if (light_volume) {
 		copyDepthBuffer(gbuffer_fbo, lighting_fbo);
 
 		lighting_fbo->bind();
@@ -279,26 +261,16 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		glDepthMask(GL_FALSE);
 		glDepthFunc(GL_LEQUAL);
 
-		//render skybox
-		if (skybox_cubemap)
-			renderSkybox(skybox_cubemap);
-
 		renderDeferredAmbientPass();
 		renderDirectionalLights();
 
-
 		renderLightVolumes(camera);
 
-
-		// 8. Unbind lighting FBO
 		lighting_fbo->unbind();
 
-		// 9. Mostrar resultado final
 		lighting_fbo->color_textures[0]->toViewport();
 
 		if (use_motion_blur) {
-			// Aquí estás copiando el resultado de lighting_fbo, pero ¡no has renderizado ahí!
-			// Arreglar:
 			motion_blur_fbo->bind();
 			glClear(GL_COLOR_BUFFER_BIT);
 
@@ -306,28 +278,19 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 			glDepthMask(GL_FALSE);
 			glDepthFunc(GL_LEQUAL);
 
-			//// Usa gbuffer_fbo o lo que contenga tu frame final (lighting_fbo puede no tener datos aquí)
-			//lighting_fbo->color_textures[0]->toViewport();
-
 			applyMotionBlur();
 
 			motion_blur_fbo->unbind();
 
 			motion_blur_fbo->color_textures[0]->toViewport();
 		}
-
 	}
 	else if (use_ssao) {
 		copyDepthBuffer(gbuffer_fbo, ssao_fbo);
 		if (use_ssao_plus)
-		{
 			generateSpherePoints(ssao_kernel_size, ssao_radius, true);
-
-		}
-		else {
+		else
 			generateSpherePoints(ssao_kernel_size, ssao_radius, false);
-
-		}
 
 		ssao_fbo->bind();
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -336,93 +299,61 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		glDepthMask(GL_FALSE);
 		glDepthFunc(GL_LEQUAL);
 
-		//render skybox
-		if (skybox_cubemap)
-			renderSkybox(skybox_cubemap);
-
 		renderSSAO(Camera::current);
 
-		// 8. Unbind lighting FBO
 		ssao_fbo->unbind();
 
-		// 9. Mostrar resultado final
 		ssao_fbo->color_textures[0]->toViewport();
 
-		//blurSSAOTexture();
-
 		if (ssao_plus_deferred) {
-
-			//2.2
-			// Restaurar estado OpenGL
 			glBindFramebuffer(GL_FRAMEBUFFER, 0);
 			glViewport(0, 0, gbuffer_fbo->width, gbuffer_fbo->height);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 			glDepthMask(GL_TRUE);
 			glDepthFunc(GL_LESS);
 			glDisable(GL_BLEND);
-
-			//render skybox
-			if (skybox_cubemap)
-				renderSkybox(skybox_cubemap);
-
-			// Render simple pass
 			renderDeferredSinglePass();
 		}
 	}
-	else if (use_hdr)
-		{
-			//2.2
+	else if (use_hdr) {
+		hdr_fbo->bind();
+		glClearColor(0, 0, 0, 1);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+		renderDeferredSinglePass();
+
+		hdr_fbo->unbind();
+
+		copyDepthBuffer(hdr_fbo, tonemap_fbo);
+
+		tonemap_fbo->bind();
+		glClear(GL_COLOR_BUFFER_BIT);
+
+		glDisable(GL_BLEND);
+		glDepthMask(GL_FALSE);
+		glDepthFunc(GL_LEQUAL);
+
+		renderToTonemap();
 			
+		tonemap_fbo->unbind();
 
-			hdr_fbo->bind();
-			glClearColor(0, 0, 0, 1);
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		tonemap_fbo->color_textures[0]->toViewport();
 
-			// Render scene (deferred simple pass)
-			renderDeferredSinglePass();
-
-
-			hdr_fbo->unbind();
-
-			copyDepthBuffer(hdr_fbo, tonemap_fbo);
-
-			tonemap_fbo->bind();
+		if (use_motion_blur) {
+			motion_blur_fbo->bind();
 			glClear(GL_COLOR_BUFFER_BIT);
 
 			glDisable(GL_BLEND);
 			glDepthMask(GL_FALSE);
 			glDepthFunc(GL_LEQUAL);
 
-			// Tone mapping final al quad
-			renderToTonemap();
-			
-			tonemap_fbo->unbind();
+			applyMotionBlur();
 
-			tonemap_fbo->color_textures[0]->toViewport();
+			motion_blur_fbo->unbind();
 
-		
-
-			if (use_motion_blur) {
-				// Aquí estás copiando el resultado de lighting_fbo, pero ¡no has renderizado ahí!
-				// Arreglar:
-				motion_blur_fbo->bind();
-				glClear(GL_COLOR_BUFFER_BIT);
-
-				glDisable(GL_BLEND);
-				glDepthMask(GL_FALSE);
-				glDepthFunc(GL_LEQUAL);
-
-				//// Usa gbuffer_fbo o lo que contenga tu frame final (lighting_fbo puede no tener datos aquí)
-				//lighting_fbo->color_textures[0]->toViewport();
-
-				applyMotionBlur();
-
-				motion_blur_fbo->unbind();
-
-				motion_blur_fbo->color_textures[0]->toViewport();
-			}
-
+			motion_blur_fbo->color_textures[0]->toViewport();
 		}
+	}
 	else {
 		renderDeferredSinglePass();
 
@@ -467,13 +398,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	// Disable blending for next frame
 	glDisable(GL_BLEND);
 
-	
-
-	
-
 	prev_view_projection = current_view_projection;
-
-
 }
 
 void Renderer::update(float dt) {
@@ -1293,8 +1218,6 @@ void Renderer::showUI()
 
 	}
 
-
-	
 	if (light_volume)
 	{
 		use_deferred = true;
@@ -1305,7 +1228,6 @@ void Renderer::showUI()
 		use_hdr = false;
 	}
 
-	// In showUI()
 	ImGui::Checkbox("SSAO", &use_ssao);
 	if (use_ssao) {
 		ImGui::Checkbox("SSAO+", &use_ssao_plus);
@@ -1326,7 +1248,6 @@ void Renderer::showUI()
 		ImGui::Checkbox("Apply Gamma Correction", &apply_gamma);
 	}
 
-	// En showUI()
 	ImGui::Checkbox("Motion Blur", &use_motion_blur);
 	if (use_motion_blur) {
 		ImGui::SliderFloat("Motion Blur Strength", &motion_blur_strength, 0.0f, 5.0f);
