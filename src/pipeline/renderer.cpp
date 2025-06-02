@@ -384,6 +384,8 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 			hdr_fbo->unbind();
 
+			copyDepthBuffer(hdr_fbo, tonemap_fbo);
+
 			tonemap_fbo->bind();
 			glClear(GL_COLOR_BUFFER_BIT);
 
