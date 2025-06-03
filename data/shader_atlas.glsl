@@ -14,6 +14,10 @@ light_volume light_volume.vs light_volume.fs
 deferred_ambient quad.vs deferred_ambient.fs
 ssao quad.vs ssao.fs
 tonemap quad.vs tonemap.fs
+velocity velocity.vs velocity.fs
+motion_blur motion_blur.vs motion_blur.fs
+quad_texture quad.vs quad_texture.fs
+
 
 \test.cs
 #version 430 core
@@ -98,6 +102,18 @@ out vec4 FragColor;
 void main()
 {
 	FragColor = u_color;
+}
+
+
+\quad_texture.fs
+#version 330 core
+in vec2 v_uv;
+out vec4 fragColor;
+
+uniform sampler2D u_texture;
+
+void main() {
+    fragColor = texture(u_texture, v_uv);
 }
 
 
@@ -590,8 +606,10 @@ in vec3 v_world_position;
 
 layout(location = 0) out vec4 gbuffer_albedo;
 layout(location = 1) out vec4 gbuffer_normal;
+layout(location = 2) out vec3 u_screen_position;
 
 uniform sampler2D u_color_texture;
+uniform sampler2D u_metallic_roughness_texture;
 uniform vec4 u_color;
 uniform float u_alpha_cutoff;
 
@@ -611,6 +629,8 @@ void main()
     // Encode normal a [0,1] per emmagatzemar-la com a textura
     vec3 encoded_normal = normalize(v_normal) * 0.5 + 0.5;
     gbuffer_normal = vec4(encoded_normal, 1.0);
+
+    u_screen_position = v_world_position;
 }
 
 
@@ -679,7 +699,7 @@ float computeShadow(sampler2D shadow_map, mat4 shadow_matrix, vec3 world_positio
     float closest_depth = texture(shadow_map, shadow_uv).r;
     float current_depth = shadow_coord.z * 0.5 + 0.5;
 
-    return (current_depth - u_bias > closest_depth) ? 0.0 : 1.0;
+    return (current_depth > closest_depth) ? 0.005 : 1.0;
 }
 
 void main()
@@ -726,7 +746,7 @@ void main()
             L = normalize(light_vec);
             attenuation = 1.0 / (distance * distance);
             
-            if(i == 0) shadow = computeShadow(u_shadow_map_0, u_shadow_matrix_0, world_position);
+            //if(i == 0) shadow = computeShadow(u_shadow_map_0, u_shadow_matrix_0, world_position);
         }
         else if(u_light_type[i] == 2) { // Spot light
             vec3 light_vec = u_light_pos[i] - world_position;
@@ -737,13 +757,13 @@ void main()
             float outer = cos(u_light_cone[i].y);
             float inner = cos(u_light_cone[i].x);
             float epsilon = inner - outer;
-            spotlight_factor = clamp((theta - outer) / epsilon, 0.0, 1.0);
+            spotlight_factor = clamp((theta - outer) / epsilon, 0.005, 1.0);
             attenuation = 1.0 / (distance * distance);
             
             if(i == 0) shadow = computeShadow(u_shadow_map_0, u_shadow_matrix_0, world_position);
         }
         else if(u_light_type[i] == 3) { // Directional light
-            L = normalize(-u_light_dir[i]);
+            L = normalize(u_light_dir[i]);
             
             if(i == 3) shadow = computeShadow(u_shadow_map_3, u_shadow_matrix_3, world_position);
         }
@@ -754,19 +774,24 @@ void main()
         vec3 light_intensity = u_light_color[i] * u_light_intensity[i] * attenuation * spotlight_factor * shadow;
 
         vec3 H = normalize(L + V);
-        float NdotL = max(dot(N, L), 0.0);
-        float NdotV = max(dot(N, V), 0.0);
+        float NdotL = max(dot(N, L), 0.005);
+        float NdotV = max(dot(N, V), 0.005);
 
         float NDF = distributionGGX(N, H, roughness);
         float G   = geometrySmith(N, V, L, roughness);
-        vec3  F   = fresnelSchlick(max(dot(H, V), 0.0), F0);
+        vec3  F   = fresnelSchlick(max(dot(H, V), 0.005), F0);
 
         vec3 numerator = NDF * G * F;
         float denominator = 4.0 * NdotV * NdotL + 0.001;
         vec3 specular = numerator / denominator;
 
-        vec3 kS = F;
-        vec3 kD = (1.0 - kS) * (1.0 - metalness);
+        float minDiffuse = 0.05; // o 0.1 si lo querés más evidente
+        vec3 kS = fresnelSchlick(max(dot(N, V), 0.005), F0);
+        float clamped_metalness = clamp(metalness, 0.005, 0.95); // evitar apagado total
+
+        vec3 kD = max((1.0 - kS) * (1.0 - clamped_metalness), vec3(minDiffuse));
+
+
 
         light_intensity = u_light_color[i] * u_light_intensity[i] * attenuation * spotlight_factor * shadow;
         vec3 diffuse = (kD * albedo / 3.141592) * NdotL;
@@ -774,32 +799,35 @@ void main()
         final_color += (diffuse + specular) * light_intensity;
 
     }
-    vec3 kS = fresnelSchlick(max(dot(N, V), 0.0), F0);
-    vec3 kD = (1.0 - kS) * (1.0 - metalness);
+    float minDiffuse = 0.1; // o 0.1 si lo querés más evidente
+    vec3 kS = fresnelSchlick(max(dot(N, V), 0.005), F0);
+    float clamped_metalness = clamp(metalness, 0.005, 0.95); 
+
+    vec3 kD = max((1.0 - kS) * (1.0 - clamped_metalness), vec3(minDiffuse));
+
     vec3 ambient = u_ambient_light * (albedo * kD) * occlusion;
 
+    
     FragColor = vec4(final_color + ambient, 1.0);
 }
 
 \light_volume.vs
 #version 330 core
 
-in vec3 a_vertex;       // Posición del vértice (esfera unitaria)
-in vec3 a_normal;       // Normal (no siempre necesaria para light volumes)
+in vec3 a_vertex;       
+in vec3 a_normal;      
 
-uniform mat4 u_model;           // Transformación de la luz (posición + escala)
-uniform mat4 u_viewprojection;  // View + Projection
-uniform vec3 u_camera_pos;      // Posición de cámara (para efectos opcionales)
+uniform mat4 u_model;           
+uniform mat4 u_viewprojection;  
+uniform vec3 u_camera_pos;     
 
-out vec3 v_world_position;      // Posición en mundo del vértice
-out vec3 v_normal;              // Normal (opcional, para efectos avanzados)
+out vec3 v_world_position;     
+out vec3 v_normal;              
 
 void main()
 {
-    // Transformar vértice a mundo (la esfera se escala según el radio de influencia de la luz)
     v_world_position = (u_model * vec4(a_vertex, 1.0)).xyz;
     
-    // Pasar la normal (útil si quieres hacer efectos como "rim lighting" en el volumen)
     v_normal = normalize((u_model * vec4(a_normal, 0.0)).xyz);
     
     // Posición en clip space
@@ -860,11 +888,11 @@ void main() {
     float NdotV = max(dot(normal, V), 0.0);
 
     // Attenuation
-    float att = u_light_intensity / (1.0 + 0.1 * dist + 0.01 * dist * dist);
+    float att = u_light_intensity / (dist * dist);
 
     // Spotlight
     if (u_light_type == 2) {
-        float cos_angle = dot(-L, normalize(u_light_dir));
+        float cos_angle = dot(L, normalize(u_light_dir));
         float spot = smoothstep(u_light_cone.y, u_light_cone.x, cos_angle);
         att *= spot;
     }
@@ -883,7 +911,7 @@ void main() {
     vec3 radiance = u_light_color * att;
     vec3 color = (diffuse + specular) * radiance * NdotL;
 
-    FragColor = vec4(color, 1.0);
+    FragColor = vec4(vec3(color), 1.0);
 }
 
 
@@ -955,7 +983,7 @@ vec3 fresnelSchlick(float cosTheta, vec3 F0) {
 float distributionGGX(vec3 N, vec3 H, float roughness) {
     float a = roughness * roughness;
     float a2 = a * a;
-    float NdotH = max(dot(N, H), 0.0);
+    float NdotH = max(dot(N, H), 0.0001);
     float NdotH2 = NdotH * NdotH;
 
     float denom = (NdotH2 * (a2 - 1.0) + 1.0);
@@ -966,8 +994,8 @@ float distributionGGX(vec3 N, vec3 H, float roughness) {
 
 // Geometry function: Smith's method with Schlick-GGX
 float geometrySchlickGGX(float NdotV, float roughness) {
-    float r = roughness + 1.0;
-    float k = (r * r) / 8.0;
+    float a = roughness * roughness;
+    float k = a/2.0;
 
     return NdotV / max(NdotV * (1.0 - k) + k, 0.001);
 }
@@ -990,11 +1018,20 @@ uniform int u_sample_count;
 uniform float u_sample_radius;
 uniform mat4 u_p_mat;
 uniform mat4 u_inv_p_mat;
+uniform mat4 u_view_mat;
 uniform vec2 u_res_inv;
 uniform int u_use_ssao_plus;
+uniform float u_near;
+uniform float u_far;
 
 in vec2 v_uv;
 out vec4 FragColor;
+
+float linearizeDepth(float z)
+{
+    float z_ndc = z * 2.0 - 1.0;
+    return (2.0 * u_near * u_far) / (u_far + u_near - z_ndc * (u_far - u_near));
+}
 
 vec3 viewPosFromDepth(float depth, vec2 texCoord) {
     vec4 clipPos = vec4(texCoord * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
@@ -1004,69 +1041,52 @@ vec3 viewPosFromDepth(float depth, vec2 texCoord) {
 
 void main()
 {
-    // Get depth and normal from GBuffer
-    float depth = texture(u_gbuffer_depth, v_uv).r;
-    vec3 normal = normalize(texture(u_gbuffer_normal, v_uv).xyz * 2.0 - 1.0);
-    
-    // Background (depth = 1.0) - no occlusion
-    if (depth >= 1.0) {
+    float rawDepth = texture(u_gbuffer_depth, v_uv).r;
+    if (rawDepth >= 1.0) {
         FragColor = vec4(1.0);
         return;
     }
-    
+
+    float depth = linearizeDepth(rawDepth);
     vec3 fragPos = viewPosFromDepth(depth, v_uv);
+
+    vec3 normal_ws = normalize(texture(u_gbuffer_normal, v_uv).xyz * 2.0 - 1.0);
+    vec3 normal_vs = normalize((u_view_mat * vec4(normal_ws, 0.0)).xyz);
+
+    vec3 randomVec = vec3(1.0, 0.0, 0.0);
     
-    // Generate random rotation using noise
-    vec3 randomVec = normalize(vec3(
-        fract(sin(dot(v_uv, vec2(12.9898, 78.233))) * 43758.5453),
-        fract(sin(dot(v_uv, vec2(39.346, 11.135))) * 43758.5453),
-        0.0
-    ));
     
-    // Create TBN matrix to orient samples
-    vec3 tangent = normalize(randomVec - normal * dot(randomVec, normal));
-    vec3 bitangent = cross(normal, tangent);
-    mat3 TBN = mat3(tangent, bitangent, normal);
     
-    // Calculate occlusion
+
+    vec3 tangent = normalize(randomVec - normal_vs * dot(randomVec, normal_vs));
+    vec3 bitangent = cross(normal_vs, tangent);
+    mat3 TBN = mat3(tangent, bitangent, normal_vs);
+
     float occlusion = 0.0;
-    for(int i = 0; i < u_sample_count; i++) {
-        // Get sample position in view space
-        vec3 samplePos = TBN * u_sample_pos[i]; // From tangent to view space
-        samplePos = fragPos + samplePos * u_sample_radius;
-        
-        // Project sample position to screen space
-        vec4 offset = vec4(samplePos, 1.0);
-        offset = u_p_mat * offset;
+
+    for (int i = 0; i < u_sample_count; i++) {
+        vec3 samplePos = TBN * u_sample_pos[i];
+        samplePos = fragPos + samplePos;
+
+        vec4 offset = u_p_mat * vec4(samplePos, 1.0);
         offset.xyz /= offset.w;
-        offset.xy = offset.xy * 0.5 + 0.5; // Transform to [0,1] range
-        
-        // Check if sample is outside screen
-        if(offset.x < 0.0 || offset.x > 1.0 || offset.y < 0.0 || offset.y > 1.0) {
+        offset.xy = offset.xy * 0.5 + 0.5;
+
+        if (offset.x < 0.0 || offset.x > 1.0 || offset.y < 0.0 || offset.y > 1.0) {
             continue;
         }
-        
-        // Get sample depth from GBuffer
-        float sampleDepth = texture(u_gbuffer_depth, offset.xy).r;
+
+        float sampleRawDepth = texture(u_gbuffer_depth, offset.xy).r;
+        float sampleDepth = linearizeDepth(sampleRawDepth);
         vec3 sampleViewPos = viewPosFromDepth(sampleDepth, offset.xy);
-        
+
         float rangeCheck = smoothstep(0.0, 1.0, u_sample_radius / abs(fragPos.z - sampleViewPos.z));
-        
-        if (u_use_ssao_plus == 1) {
-            // SSAO+: Only count samples in front of the surface
-            occlusion += (sampleViewPos.z >= samplePos.z ? 1.0 : 0.0) * rangeCheck;
-        } else {
-            // Regular SSAO: Compare view-space Z values
-            occlusion += (sampleViewPos.z <= samplePos.z ? 1.0 : 0.0) * rangeCheck;
-        }
+        occlusion += (sampleViewPos.z >= samplePos.z ? 1.0 : 0.0) * rangeCheck;
     }
-    
-    // Normalize and invert occlusion
+
     occlusion = 1.0 - (occlusion / float(u_sample_count));
-    
     occlusion = pow(occlusion, 2.0);
-    
-    FragColor = vec4(occlusion, occlusion, occlusion, 1.0);
+    FragColor = vec4(vec3(occlusion), 1.0);
 }
 
 \tonemap.fs
@@ -1113,4 +1133,188 @@ void main()
         mapped = pow(mapped, vec3(1.0 / 2.2));
 
     FragColor = vec4(mapped, 1.0);
+}
+
+\velocity.vs
+
+#version 330 core
+
+in vec3 a_vertex;
+
+uniform mat4 u_model;
+uniform mat4 u_view_projection;
+uniform mat4 u_prev_view_projection;
+uniform mat4 u_prev_model;
+
+// Para per-object motion blur
+uniform mat4 u_current_mvp;
+uniform mat4 u_prev_mvp;
+
+out vec4 v_current_pos;
+out vec4 v_prev_pos;
+
+void main() {
+    vec4 world_pos = u_model * vec4(a_vertex, 1.0);
+    vec4 prev_world_pos = u_prev_model * vec4(a_vertex, 1.0);
+    
+    // Posiciones en clip space
+    v_current_pos = u_view_projection * world_pos;
+    v_prev_pos = u_prev_view_projection * prev_world_pos;
+    
+    gl_Position = v_current_pos;
+}
+
+
+\velocity.fs
+#version 330 core
+
+in vec4 v_current_pos;  // posición actual en clip space
+in vec4 v_prev_pos;     // posición del frame anterior en clip space
+
+layout(location = 0) out vec2 velocity_output;
+
+void main()
+{
+    // Convertir de clip space a NDC
+    vec2 current_ndc = v_current_pos.xy / v_current_pos.w;
+    vec2 prev_ndc = v_prev_pos.xy / v_prev_pos.w;
+
+    // Calcular vector de velocidad en screen space
+    vec2 velocity = (current_ndc - prev_ndc) * 0.5; // Escalado opcional a [-0.5, 0.5]
+
+    // Guardamos como salida en un render target RG
+    velocity_output = velocity;
+}
+
+
+\motion_blur.vs
+#version 330 core
+
+in vec3 a_vertex;
+in vec2 a_coord;
+
+out vec2 v_uv;
+
+void main() {
+    v_uv = a_coord;
+    gl_Position = vec4(a_vertex, 1.0);
+}
+
+\motion_blur.fs
+// motion_blur.fs (Fragment Shader)
+#version 330 core
+
+in vec2 v_uv;
+
+uniform sampler2D u_color_texture;
+uniform sampler2D u_velocity_texture;
+uniform sampler2D u_depth_texture;
+
+uniform float u_motion_blur_strength;
+uniform int u_motion_blur_samples;
+uniform bool u_use_object_motion_blur;
+uniform vec2 u_texel_size;
+
+out vec4 fragColor;
+
+// Función para obtener depth linearizado
+float linearizeDepth(float depth, float near, float far) {
+    return (2.0 * near * far) / (far + near - depth * (far - near));
+}
+
+void main() {
+    vec2 velocity = texture(u_velocity_texture, v_uv).xy;
+    
+    // Escalar velocidad por fuerza del motion blur
+    velocity *= u_motion_blur_strength;
+    
+    // Si la velocidad es muy pequeña, no aplicar blur
+    float velocity_length = length(velocity);
+    if (velocity_length < 0.001) {
+        fragColor = texture(u_color_texture, v_uv);
+        return;
+    }
+    
+    vec3 color = vec3(0.0);
+    float total_weight = 0.0;
+    
+    // Sampling pattern para motion blur
+    for (int i = 0; i < u_motion_blur_samples; ++i) {
+        float t = float(i) / float(u_motion_blur_samples - 1);
+        t = t * 2.0 - 1.0; // Rango [-1, 1]
+        
+        vec2 sample_uv = v_uv + velocity * t;
+        
+        // Verificar bounds
+        if (sample_uv.x >= 0.0 && sample_uv.x <= 1.0 && 
+            sample_uv.y >= 0.0 && sample_uv.y <= 1.0) {
+            
+            vec3 sample_color = texture(u_color_texture, sample_uv).rgb;
+            
+            float weight = 1.0 - abs(t);
+            
+            float center_depth = texture(u_depth_texture, v_uv).r;
+            float sample_depth = texture(u_depth_texture, sample_uv).r;
+            float depth_diff = abs(center_depth - sample_depth);
+            
+            if (depth_diff < 0.01) { // Threshold para depth similarity
+                color += sample_color * weight;
+                total_weight += weight;
+            }
+        }
+    }
+    
+    if (total_weight > 0.0) {
+        color /= total_weight;
+    } else {
+        color = texture(u_color_texture, v_uv).rgb;
+    }
+    
+    fragColor = vec4(color, 1.0);
+}
+
+\motion_blur_camera.fs
+//No utilizada al final
+#version 330 core
+
+in vec2 v_uv;
+
+uniform sampler2D u_color_texture;
+uniform sampler2D u_depth_texture;
+uniform mat4 u_current_view_projection;
+uniform mat4 u_prev_view_projection;
+uniform mat4 u_inverse_view_projection;
+uniform float u_motion_blur_strength;
+uniform int u_motion_blur_samples;
+
+out vec4 fragColor;
+
+void main() {
+    float depth = texture(u_depth_texture, v_uv).r;
+    
+    vec4 clip_pos = vec4(v_uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 world_pos = u_inverse_view_projection * clip_pos;
+    world_pos /= world_pos.w;
+    
+    vec4 current_clip = u_current_view_projection * world_pos;
+    vec4 prev_clip = u_prev_view_projection * world_pos;
+    
+    vec2 current_screen = (current_clip.xy / current_clip.w) * 0.5 + 0.5;
+    vec2 prev_screen = (prev_clip.xy / prev_clip.w) * 0.5 + 0.5;
+    
+    vec2 velocity = (current_screen - prev_screen) * u_motion_blur_strength;
+    
+    vec3 color = vec3(0.0);
+    for (int i = 0; i < u_motion_blur_samples; ++i) {
+        float t = float(i) / float(u_motion_blur_samples - 1) * 2.0 - 1.0;
+        vec2 sample_uv = v_uv + velocity * t;
+        
+        if (sample_uv.x >= 0.0 && sample_uv.x <= 1.0 && 
+            sample_uv.y >= 0.0 && sample_uv.y <= 1.0) {
+            color += texture(u_color_texture, sample_uv).rgb;
+        }
+    }
+    
+    color /= float(u_motion_blur_samples);
+    fragColor = vec4(color, 1.0);
 }

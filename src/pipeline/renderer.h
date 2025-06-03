@@ -2,7 +2,7 @@
 #include "scene.h"
 #include "prefab.h"
 #include "camera.h"
-
+#define M_PI 3.14159265358979323846
 #include "light.h"
 
 //forward declarations
@@ -43,11 +43,36 @@ namespace SCN {
 
 		SCN::Scene* scene;
 
-		bool use_multipass;
+		//Blur 
+		SCN::Node* car1 = nullptr;
+		SCN::Node* car2 = nullptr;
+
+		struct MotionBlurData {
+			Matrix44 prev_model;
+			Matrix44 current_model;
+		};
+
+		std::map<SCN::Node*, MotionBlurData> motion_data;
+
+
+		bool scene_blur_object;
+
+		int last_ssao_kernel_size = -1;
+		float last_ssao_radius = -1.0f;
+		bool last_ssao_plus = false;
 
 		float shadow_bias = 0.003f;
+		float amplitud;
+		float frecuencia;
+		bool use_motion_blur;
+		bool use_multipass = false;
 
 		bool front_face_culling;
+		float motion_blur_strength;
+		bool use_object_motion_blur;
+		int motion_blur_samples;
+		bool has_prev_view_projection = false;
+
 
 		// In Renderer.h
 		GFX::FBO* ssao_fbo;
@@ -87,7 +112,7 @@ namespace SCN {
 
 		void setupLight(SCN::LightEntity* light); // 3.2.1 ASSIGNMENT 3
 		void renderShadowMap(SCN::Scene* scene); // 3.2.2 ASSIGNMENT 3
-
+		void parseNodes(SCN::Node* node, Camera* cam, BaseEntity* entity);
 		void parseSceneEntities(SCN::Scene* scene, Camera* camera);
 
 		//renders several elements of the scene
@@ -118,8 +143,19 @@ namespace SCN {
 		void renderToTonemap();
 
 		void renderLightVolumes(Camera* camera);
+		
+		void renderMotionVectors();
+
+		void renderFBOToScreen(GFX::FBO* fbo, GFX::Shader* shader);
+
+
+		void applyMotionBlur();
+
+
 
 		void showUI();
+
+		void update(float dt);
 	};
 
 };
