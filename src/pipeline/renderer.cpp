@@ -397,26 +397,23 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		else
 		{
 			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			glViewport(0, 0, gbuffer_fbo->width, gbuffer_fbo->height);  
+
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+
 			glDepthMask(GL_TRUE);
 			glDepthFunc(GL_LESS);
+
 			glDisable(GL_BLEND);
+			glEnable(GL_CULL_FACE);
+			glCullFace(GL_BACK);
 
 			if (skybox_cubemap)
 				renderSkybox(skybox_cubemap);
 
 			renderDeferredSinglePass();
 
-			if (use_motion_blur)
-			{
-				motion_blur_fbo->bind();
-				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-				gbuffer_fbo->color_textures[0]->toViewport(); // o usar renderFBOToScreen si es necesario
-				motion_blur_fbo->unbind();
 
-				applyMotionBlur();
-				renderFBOToScreen(motion_blur_fbo, quad_texture);
-			}
 		}
 
 		// Blending ON para objetos transparentes
